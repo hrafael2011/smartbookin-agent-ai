@@ -3,7 +3,7 @@
  */
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Business } from '@/types'
+import type { Business, BusinessFormData } from '@/types'
 import { businessAPI } from '@/services/api'
 
 interface BusinessState {
@@ -14,6 +14,7 @@ interface BusinessState {
 
   // Actions
   fetchBusinesses: () => Promise<void>
+  createBusiness: (data: BusinessFormData) => Promise<Business>
   setCurrentBusiness: (business: Business) => void
   updateBusiness: (id: number, data: Partial<Business>) => Promise<void>
   clearError: () => void
@@ -31,15 +32,38 @@ export const useBusinessStore = create<BusinessState>()(
         set({ isLoading: true, error: null })
         try {
           const businesses = await businessAPI.list()
+          const current = get().currentBusiness
+          const currentStillExists = current
+            ? businesses.some((business) => business.id === current.id)
+            : false
           set({
             businesses,
             isLoading: false,
-            // Auto-select first business if none selected
-            currentBusiness: get().currentBusiness || businesses[0] || null,
+            currentBusiness: currentStillExists ? current : businesses[0] || null,
           })
         } catch (error: any) {
           set({
             error: error.response?.data?.detail || 'Error cargando negocios',
+            isLoading: false,
+          })
+          throw error
+        }
+      },
+
+      createBusiness: async (data: BusinessFormData) => {
+        set({ isLoading: true, error: null })
+        try {
+          const created = await businessAPI.create(data)
+          const businesses = [...get().businesses, created]
+          set({
+            businesses,
+            currentBusiness: created,
+            isLoading: false,
+          })
+          return created
+        } catch (error: any) {
+          set({
+            error: error.response?.data?.detail || 'Error creando negocio',
             isLoading: false,
           })
           throw error

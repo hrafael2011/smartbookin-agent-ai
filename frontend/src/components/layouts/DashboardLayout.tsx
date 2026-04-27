@@ -1,11 +1,20 @@
-import { useState } from 'react';
-import { Menu, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import Sidebar from '@/components/Sidebar';
 import { Outlet } from 'react-router-dom';
+import BusinessOnboarding from '@/pages/BusinessOnboarding';
+import { useBusinessStore } from '@/store/businessStore';
 
 export default function DashboardLayout() {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const { businesses, currentBusiness, fetchBusinesses, isLoading } = useBusinessStore();
+
+    useEffect(() => {
+        void fetchBusinesses();
+    }, [fetchBusinesses]);
+
+    const needsBusiness = !isLoading && businesses.length === 0 && !currentBusiness;
 
     return (
         <div className="flex h-screen bg-background">
@@ -44,7 +53,16 @@ export default function DashboardLayout() {
                 {/* Content Area */}
                 <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-muted/20">
                     <div className="mx-auto max-w-6xl animate-fade-in">
-                        <Outlet />
+                        {isLoading && businesses.length === 0 ? (
+                            <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">
+                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                Cargando configuración...
+                            </div>
+                        ) : needsBusiness ? (
+                            <BusinessOnboarding />
+                        ) : (
+                            <Outlet />
+                        )}
                     </div>
                 </main>
             </div>

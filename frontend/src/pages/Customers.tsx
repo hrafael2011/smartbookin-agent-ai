@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Search, Phone, Mail } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Phone, Mail, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { customersAPI } from '@/services/api';
 import { useBusinessStore } from '@/store/businessStore';
 import { Customer, CustomerFormData } from '@/types';
 import { formatPhone } from '@/utils/formatters';
-import { Button, Input, Modal, Card, CardContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Skeleton, ConfirmationModal } from '@/components/ui';
+import { Button, Input, Modal, Card, CardContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Skeleton, ConfirmationModal, EmptyState } from '@/components/ui';
 
 export function Customers() {
   const { currentBusiness } = useBusinessStore();
@@ -88,6 +88,15 @@ export function Customers() {
     setIsLoading(true);
 
     try {
+      if (!formData.name.trim()) {
+        toast.error('El nombre del cliente es obligatorio');
+        return;
+      }
+      if (!formData.phone.trim()) {
+        toast.error('El teléfono del cliente es obligatorio');
+        return;
+      }
+
       if (editingCustomer) {
         if (!currentBusiness) return;
         await customersAPI.update(editingCustomer.id, formData, currentBusiness.id);
@@ -183,7 +192,17 @@ export function Customers() {
                   ) : filteredCustomers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                        {searchQuery ? 'No se encontraron clientes' : 'No hay clientes registrados'}
+                        {searchQuery ? (
+                          'No se encontraron clientes'
+                        ) : (
+                          <EmptyState
+                            icon={<Users className="h-6 w-6" />}
+                            title="Aún no tienes clientes"
+                            description="Puedes crearlos manualmente o dejar que aparezcan cuando un cliente escriba por Telegram."
+                            actionLabel="Nuevo cliente"
+                            onAction={() => handleOpenModal()}
+                          />
+                        )}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -257,8 +276,18 @@ export function Customers() {
             ))
           ) : filteredCustomers.length === 0 ? (
             <Card>
-              <CardContent className="text-center text-muted-foreground py-8">
-                {searchQuery ? 'No se encontraron clientes' : 'No hay clientes registrados'}
+              <CardContent>
+                {searchQuery ? (
+                  <div className="py-8 text-center text-muted-foreground">No se encontraron clientes</div>
+                ) : (
+                  <EmptyState
+                    icon={<Users className="h-6 w-6" />}
+                    title="Aún no tienes clientes"
+                    description="Registra un cliente manualmente para crear citas desde el panel."
+                    actionLabel="Nuevo cliente"
+                    onAction={() => handleOpenModal()}
+                  />
+                )}
               </CardContent>
             </Card>
           ) : (

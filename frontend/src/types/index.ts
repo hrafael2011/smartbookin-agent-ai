@@ -72,6 +72,14 @@ export interface Business {
   updated_at: string
 }
 
+export interface BusinessFormData {
+  name: string
+  phone: string
+  category: string
+  description?: string
+  address?: string
+}
+
 // ============================================================================
 // SERVICE TYPES
 // ============================================================================

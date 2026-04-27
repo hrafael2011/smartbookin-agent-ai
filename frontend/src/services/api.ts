@@ -9,6 +9,7 @@ import type {
   RegisterApiResponse,
   RegisterPayload,
   Business,
+  BusinessFormData,
   Service,
   ServiceFormData,
   Customer,
@@ -272,6 +273,39 @@ function isAuthPath(url: string | undefined): boolean {
   )
 }
 
+function getApiErrorMessage(error: AxiosError): string | null {
+  if (!error.response) {
+    return 'No se pudo conectar con el servidor. Revisa tu conexión.'
+  }
+
+  const data = error.response.data as { detail?: unknown; message?: unknown } | undefined
+  const detail = data?.detail || data?.message
+  if (typeof detail === 'string') {
+    return detail
+  }
+
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0] as { msg?: unknown } | undefined
+    if (typeof first?.msg === 'string') {
+      return first.msg
+    }
+  }
+
+  const statusMessages: Record<number, string> = {
+    400: 'La información enviada no es válida.',
+    403: 'No tienes permiso para realizar esta acción.',
+    404: 'No se encontró el recurso solicitado.',
+    409: 'La operación entra en conflicto con información existente.',
+    422: 'Revisa los campos del formulario.',
+  }
+
+  if (error.response.status >= 500) {
+    return 'Error en el servidor. Por favor, intenta más tarde.'
+  }
+
+  return statusMessages[error.response.status] || null
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
@@ -313,10 +347,9 @@ api.interceptors.response.use(
       window.location.href = '/login'
     }
 
-    if (!error.response) {
-      toast.error('No se pudo conectar con el servidor. Revisa tu conexión.')
-    } else if (error.response.status >= 500) {
-      toast.error('Error en el servidor. Por favor, intenta más tarde.')
+    const message = getApiErrorMessage(error)
+    if (message && !isAuthPath(reqUrl)) {
+      toast.error(message)
     }
 
     return Promise.reject(error)
@@ -411,6 +444,17 @@ export const businessAPI = {
   list: async (): Promise<Business[]> => {
     const response = await api.get<RawBusiness[]>('/businesses/')
     return response.data.map(mapBusiness)
+  },
+
+  create: async (data: BusinessFormData): Promise<Business> => {
+    const response = await api.post<RawBusiness>('/businesses/', {
+      name: data.name,
+      phone_number: data.phone,
+      category: data.category,
+      description: data.description || undefined,
+      address: data.address || undefined,
+    })
+    return mapBusiness(response.data)
   },
 
   get: async (id: number): Promise<Business> => {

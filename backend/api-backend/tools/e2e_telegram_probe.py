@@ -26,7 +26,7 @@ def _tomorrow() -> str:
 async def _pick_business() -> Dict[str, Any]:
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(Business).where(Business.name.ilike("%excelencia%")).limit(1)
+            select(Business).where(Business.is_active == True).order_by(Business.id).limit(1)
         )
         b = result.scalars().first()
         if not b:

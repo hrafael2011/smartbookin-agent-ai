@@ -12,3 +12,4 @@ ngrok.log
 # Node
 **/node_modules/
 **/dist/
+.vercel

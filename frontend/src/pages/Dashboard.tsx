@@ -2,9 +2,10 @@
  * Dashboard Page - Main metrics and overview
  */
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useBusinessStore } from '@/store/businessStore'
-import { dashboardAPI, appointmentsAPI } from '@/services/api'
-import type { DashboardMetrics, Appointment } from '@/types'
+import { dashboardAPI, appointmentsAPI, servicesAPI, scheduleAPI, telegramAPI } from '@/services/api'
+import type { DashboardMetrics, Appointment, Service, ScheduleRule, TelegramActivation } from '@/types'
 import { formatCurrency, formatDate, formatTime } from '@/utils/formatters'
 import {
   Calendar,
@@ -13,7 +14,12 @@ import {
   TrendingUp,
   Clock,
   CalendarDays,
-  CreditCard
+  CreditCard,
+  CheckCircle2,
+  Circle,
+  MessageCircle,
+  Scissors,
+  CalendarClock,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
@@ -24,6 +30,9 @@ export default function Dashboard() {
   const { currentBusiness } = useBusinessStore()
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([])
+  const [services, setServices] = useState<Service[]>([])
+  const [scheduleRules, setScheduleRules] = useState<ScheduleRule[]>([])
+  const [telegramActivation, setTelegramActivation] = useState<TelegramActivation | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -37,16 +46,26 @@ export default function Dashboard() {
 
     setIsLoading(true)
     try {
-      const metricsData = await dashboardAPI.getMetrics(currentBusiness.id)
-      setMetrics(metricsData)
-
       const today = new Date().toISOString().split('T')[0]
-      const appointments = await appointmentsAPI.list(
-        currentBusiness.id,
-        today,
-        today
-      )
-      setTodayAppointments(appointments)
+      const [
+        metricsResult,
+        appointmentsResult,
+        servicesResult,
+        scheduleResult,
+        telegramResult,
+      ] = await Promise.allSettled([
+        dashboardAPI.getMetrics(currentBusiness.id),
+        appointmentsAPI.list(currentBusiness.id, today, today),
+        servicesAPI.list(currentBusiness.id),
+        scheduleAPI.list(currentBusiness.id),
+        telegramAPI.getActivation(currentBusiness.id),
+      ])
+
+      if (metricsResult.status === 'fulfilled') setMetrics(metricsResult.value)
+      if (appointmentsResult.status === 'fulfilled') setTodayAppointments(appointmentsResult.value)
+      if (servicesResult.status === 'fulfilled') setServices(servicesResult.value)
+      if (scheduleResult.status === 'fulfilled') setScheduleRules(scheduleResult.value)
+      if (telegramResult.status === 'fulfilled') setTelegramActivation(telegramResult.value)
     } catch (error) {
       console.error('Error loading dashboard:', error)
     } finally {
@@ -132,6 +151,50 @@ export default function Dashboard() {
     )
   }
 
+  const hasServices = services.some((service) => service.is_active)
+  const hasSchedule = scheduleRules.some((rule) => rule.is_available)
+  const hasTelegramLink = Boolean(telegramActivation?.deep_link || telegramActivation?.invite_token)
+  const hasTestAppointment = todayAppointments.length > 0 || metrics.week.total_appointments > 0
+  const setupSteps = [
+    {
+      label: 'Negocio creado',
+      description: currentBusiness?.name || 'Tu negocio ya está listo',
+      done: Boolean(currentBusiness),
+      href: '/dashboard',
+      icon: CheckCircle2,
+    },
+    {
+      label: 'Crear servicios',
+      description: 'Agrega al menos un servicio activo',
+      done: hasServices,
+      href: '/services',
+      icon: Scissors,
+    },
+    {
+      label: 'Configurar horarios',
+      description: 'Define cuándo atiendes',
+      done: hasSchedule,
+      href: '/schedule',
+      icon: CalendarClock,
+    },
+    {
+      label: 'Activar Telegram',
+      description: 'Copia el enlace para tus clientes',
+      done: hasTelegramLink,
+      href: '/telegram',
+      icon: MessageCircle,
+    },
+    {
+      label: 'Primera cita',
+      description: 'Crea o recibe una cita de prueba',
+      done: hasTestAppointment,
+      href: '/appointments',
+      icon: CalendarDays,
+    },
+  ]
+  const completedSteps = setupSteps.filter((step) => step.done).length
+  const setupComplete = completedSteps === setupSteps.length
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -143,15 +206,63 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm">
-            <CalendarDays className="w-4 h-4 mr-2" />
-            Ver Calendario
-          </Button>
-          <Button size="sm">
-            Nueva Cita
-          </Button>
+          <Link to="/calendar">
+            <Button variant="outline" size="sm">
+              <CalendarDays className="w-4 h-4 mr-2" />
+              Ver Calendario
+            </Button>
+          </Link>
+          <Link to="/appointments">
+            <Button size="sm">
+              Nueva Cita
+            </Button>
+          </Link>
         </div>
       </div>
+
+      {!setupComplete && (
+        <Card>
+          <CardHeader className="border-b border-border/40">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle>Configura tu negocio</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Completa estos pasos para empezar a recibir citas.
+                </p>
+              </div>
+              <Badge variant="outline">
+                {completedSteps}/{setupSteps.length} completados
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border/50">
+              {setupSteps.map((step) => (
+                <Link
+                  key={step.label}
+                  to={step.href}
+                  className="flex items-center justify-between gap-4 p-4 transition-colors hover:bg-muted/40"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={step.done ? 'text-green-600' : 'text-muted-foreground'}>
+                      {step.done ? (
+                        <CheckCircle2 className="h-5 w-5" />
+                      ) : (
+                        <Circle className="h-5 w-5" />
+                      )}
+                    </div>
+                    <div>
+                      <div className="font-medium text-foreground">{step.label}</div>
+                      <div className="text-sm text-muted-foreground">{step.description}</div>
+                    </div>
+                  </div>
+                  <step.icon className="h-5 w-5 text-muted-foreground" />
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

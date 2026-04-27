@@ -3,11 +3,11 @@ import { Calendar as BigCalendar, dateFnsLocalizer, View } from 'react-big-calen
 import { format, parse, startOfWeek, getDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import { Plus } from 'lucide-react';
+import { Plus, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button, Modal, Select, Input, Badge, Card, CardContent } from '@/components/ui';
-import { appointmentsAPI, customersAPI, servicesAPI } from '@/services/api';
-import { Appointment, AppointmentFormData, Customer, Service, CalendarEvent } from '@/types';
+import { Button, Modal, Select, Input, Badge, Card, CardContent, EmptyState } from '@/components/ui';
+import { appointmentsAPI, customersAPI, servicesAPI, scheduleAPI } from '@/services/api';
+import { Appointment, AppointmentFormData, Customer, Service, CalendarEvent, ScheduleRule } from '@/types';
 import { formatCurrency, formatPhone } from '@/utils/formatters';
 
 const locales = {
@@ -29,17 +29,25 @@ export function Calendar() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [scheduleRules, setScheduleRules] = useState<ScheduleRule[]>([]);
   const [view, setView] = useState<View>('month');
   const [date, setDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Appointment | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showQuickCustomer, setShowQuickCustomer] = useState(false);
+  const [quickCustomer, setQuickCustomer] = useState({ name: '', phone: '' });
   const [formData, setFormData] = useState<AppointmentFormData>({
     customer_id: '',
     service_id: '',
     scheduled_at: '',
     notes: '',
   });
+
+  const hasActiveServices = services.length > 0;
+  const hasCustomers = customers.length > 0;
+  const hasAvailableSchedule = scheduleRules.some((rule) => rule.is_available);
+  const canCreateAppointment = hasActiveServices && hasCustomers && hasAvailableSchedule;
 
   useEffect(() => {
     if (currentBusiness) {
@@ -51,10 +59,11 @@ export function Calendar() {
     if (!currentBusiness) return;
     try {
       setIsLoading(true);
-      const [appointmentsResponse, customersResponse, servicesResponse] = await Promise.allSettled([
+      const [appointmentsResponse, customersResponse, servicesResponse, schedulesResponse] = await Promise.allSettled([
         appointmentsAPI.list(currentBusiness.id),
         customersAPI.list(currentBusiness.id),
         servicesAPI.list(currentBusiness.id),
+        scheduleAPI.list(currentBusiness.id),
       ]);
 
       if (appointmentsResponse.status === 'fulfilled') {
@@ -70,6 +79,10 @@ export function Calendar() {
 
       if (servicesResponse.status === 'fulfilled') {
         setServices((servicesResponse.value || []).filter(s => s.is_active));
+      }
+
+      if (schedulesResponse.status === 'fulfilled') {
+        setScheduleRules(schedulesResponse.value || []);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -97,6 +110,17 @@ export function Calendar() {
   }, [appointments]);
 
   const handleSelectSlot = ({ start }: { start: Date; end: Date }) => {
+    if (!canCreateAppointment) {
+      if (!hasActiveServices) {
+        toast.error('Crea al menos un servicio activo antes de registrar citas');
+      } else if (!hasAvailableSchedule) {
+        toast.error('Configura al menos un día disponible antes de registrar citas');
+      } else if (!hasCustomers) {
+        toast.error('Crea al menos un cliente antes de registrar citas manuales');
+      }
+      return;
+    }
+
     setSelectedEvent(null);
     setFormData({
       customer_id: '',
@@ -115,6 +139,39 @@ export function Calendar() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedEvent(null);
+    setShowQuickCustomer(false);
+    setQuickCustomer({ name: '', phone: '' });
+  };
+
+  const handleCreateQuickCustomer = async () => {
+    if (!currentBusiness) return;
+    const name = quickCustomer.name.trim();
+    const phone = quickCustomer.phone.trim();
+    if (!name || !phone) {
+      toast.error('Nombre y teléfono del cliente son obligatorios');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const created = await customersAPI.create({
+        business: currentBusiness.id,
+        name,
+        phone,
+        email: '',
+        is_active: true,
+      });
+      setCustomers((prev) => [...prev, created]);
+      setFormData((prev) => ({ ...prev, customer_id: created.id }));
+      setShowQuickCustomer(false);
+      setQuickCustomer({ name: '', phone: '' });
+      toast.success('Cliente creado y seleccionado');
+    } catch (error) {
+      console.error('Error creating quick customer:', error);
+      toast.error('No se pudo crear el cliente');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -204,7 +261,10 @@ export function Calendar() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-foreground">Calendario</h1>
-        <Button onClick={() => handleSelectSlot({ start: new Date(), end: new Date() })}>
+        <Button
+          onClick={() => handleSelectSlot({ start: new Date(), end: new Date() })}
+          disabled={!canCreateAppointment}
+        >
           <Plus className="mr-2 h-4 w-4" />
           Nueva Cita
         </Button>
@@ -240,36 +300,44 @@ export function Calendar() {
       {/* Calendar */}
       <Card>
         <CardContent className="pt-6">
-          <div className="h-[500px] md:h-[700px]">
-            <BigCalendar
-              localizer={localizer}
-              events={events}
-              startAccessor="start"
-              endAccessor="end"
-              view={view}
-              onView={setView}
-              date={date}
-              onNavigate={setDate}
-              onSelectSlot={handleSelectSlot}
-              onSelectEvent={handleSelectEvent}
-              eventPropGetter={eventStyleGetter}
-              selectable
-              culture="es"
-              messages={{
-                next: 'Sig.',
-                previous: 'Ant.',
-                today: 'Hoy',
-                month: 'Mes',
-                week: 'Sem.',
-                day: 'Día',
-                agenda: 'Ag.',
-                date: 'Fecha',
-                time: 'Hora',
-                event: 'Evento',
-                noEventsInRange: 'Sin citas',
-              }}
+          {!canCreateAppointment && events.length === 0 ? (
+            <EmptyState
+              icon={<CalendarClock className="h-6 w-6" />}
+              title="Calendario listo para tus citas"
+              description="Completa servicios, horarios y clientes para crear citas manuales. Las citas de Telegram también aparecerán aquí."
             />
-          </div>
+          ) : (
+            <div className="h-[500px] md:h-[700px]">
+              <BigCalendar
+                localizer={localizer}
+                events={events}
+                startAccessor="start"
+                endAccessor="end"
+                view={view}
+                onView={setView}
+                date={date}
+                onNavigate={setDate}
+                onSelectSlot={handleSelectSlot}
+                onSelectEvent={handleSelectEvent}
+                eventPropGetter={eventStyleGetter}
+                selectable
+                culture="es"
+                messages={{
+                  next: 'Sig.',
+                  previous: 'Ant.',
+                  today: 'Hoy',
+                  month: 'Mes',
+                  week: 'Sem.',
+                  day: 'Día',
+                  agenda: 'Ag.',
+                  date: 'Fecha',
+                  time: 'Hora',
+                  event: 'Evento',
+                  noEventsInRange: 'Sin citas',
+                }}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -335,6 +403,46 @@ export function Calendar() {
               ]}
               required
             />
+            <div className="rounded-lg border border-border/50 bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">Cliente rápido</div>
+                  <div className="text-xs text-muted-foreground">
+                    Crea un cliente sin salir de esta cita.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowQuickCustomer((prev) => !prev)}
+                >
+                  {showQuickCustomer ? 'Ocultar' : 'Crear cliente'}
+                </Button>
+              </div>
+              {showQuickCustomer && (
+                <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                  <Input
+                    label="Nombre"
+                    value={quickCustomer.name}
+                    onChange={(e) => setQuickCustomer({ ...quickCustomer, name: e.target.value })}
+                  />
+                  <Input
+                    label="Teléfono"
+                    value={quickCustomer.phone}
+                    onChange={(e) => setQuickCustomer({ ...quickCustomer, phone: e.target.value })}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    isLoading={isLoading}
+                    onClick={handleCreateQuickCustomer}
+                  >
+                    Agregar
+                  </Button>
+                </div>
+              )}
+            </div>
             <Select
               label="Servicio"
               value={formData.service_id}

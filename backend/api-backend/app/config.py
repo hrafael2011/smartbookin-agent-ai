@@ -7,6 +7,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _int_env(name: str, default: int) -> int:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 class Config:
     """Configuración centralizada"""
 
@@ -19,8 +29,8 @@ class Config:
 
     # Redis
     REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-    REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-    REDIS_DB = int(os.getenv("REDIS_DB", 0))
+    REDIS_PORT = _int_env("REDIS_PORT", 6379)
+    REDIS_DB = _int_env("REDIS_DB", 0)
     CONVERSATION_TTL = 3600  # 1 hora en segundos
 
     # Django API
@@ -65,8 +75,8 @@ class Config:
 
     # Rate limiting
     RATE_LIMIT_PER_MINUTE = 10  # Máximo 10 mensajes por minuto por usuario
-    TG_DAILY_TOTAL_LIMIT = int(os.getenv("TG_DAILY_TOTAL_LIMIT", "40"))
-    TG_DAILY_AI_LIMIT = int(os.getenv("TG_DAILY_AI_LIMIT", "12"))
+    TG_DAILY_TOTAL_LIMIT = _int_env("TG_DAILY_TOTAL_LIMIT", 40)
+    TG_DAILY_AI_LIMIT = _int_env("TG_DAILY_AI_LIMIT", 12)
     # true = sin cuota diaria (Telegram/WhatsApp) ni tope HTTP por IP (pruebas locales)
     DISABLE_USAGE_LIMITS = os.getenv("DISABLE_USAGE_LIMITS", "").lower() in (
         "1",
@@ -79,7 +89,7 @@ class Config:
 
     # SMTP (verificación de correo)
     SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_PORT = _int_env("SMTP_PORT", 587)
     SMTP_USER = os.getenv("SMTP_USER", "").strip()
     SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
     SMTP_FROM = os.getenv("SMTP_FROM", "noreply@localhost").strip()

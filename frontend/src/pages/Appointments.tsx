@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Search, Calendar as CalendarIcon, Clock } from 'lucide-react';
+import { Plus, Edit2, Trash2, Search, Calendar as CalendarIcon, Clock, CalendarClock, Users, Scissors } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button, Input, Modal, Select, Card, CardContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Skeleton, ConfirmationModal } from '@/components/ui';
-import { appointmentsAPI, customersAPI, servicesAPI } from '@/services/api';
-import { Appointment, AppointmentFormData, Customer, Service } from '@/types';
+import { Button, Input, Modal, Select, Card, CardContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Skeleton, ConfirmationModal, EmptyState } from '@/components/ui';
+import { appointmentsAPI, customersAPI, servicesAPI, scheduleAPI } from '@/services/api';
+import { Appointment, AppointmentFormData, Customer, Service, ScheduleRule } from '@/types';
 import { formatCurrency, formatPhone } from '@/utils/formatters';
 import { format } from 'date-fns';
 
@@ -15,6 +15,7 @@ export function Appointments() {
   const [filteredAppointments, setFilteredAppointments] = useState<Appointment[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [scheduleRules, setScheduleRules] = useState<ScheduleRule[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<number | null>(null);
@@ -22,12 +23,19 @@ export function Appointments() {
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showQuickCustomer, setShowQuickCustomer] = useState(false);
+  const [quickCustomer, setQuickCustomer] = useState({ name: '', phone: '' });
   const [formData, setFormData] = useState<AppointmentFormData>({
     customer_id: '',
     service_id: '',
     scheduled_at: '',
     notes: '',
   });
+
+  const hasActiveServices = services.length > 0;
+  const hasCustomers = customers.length > 0;
+  const hasAvailableSchedule = scheduleRules.some((rule) => rule.is_available);
+  const canCreateAppointment = hasActiveServices && hasCustomers && hasAvailableSchedule;
 
   useEffect(() => {
     if (currentBusiness) {
@@ -65,10 +73,11 @@ export function Appointments() {
     if (!currentBusiness) return;
     try {
       setIsLoading(true);
-      const [appointmentsData, customersData, servicesData] = await Promise.allSettled([
+      const [appointmentsData, customersData, servicesData, schedulesData] = await Promise.allSettled([
         appointmentsAPI.list(currentBusiness.id),
         customersAPI.list(currentBusiness.id),
         servicesAPI.list(currentBusiness.id),
+        scheduleAPI.list(currentBusiness.id),
       ]);
 
       if (appointmentsData.status === 'fulfilled') {
@@ -86,6 +95,10 @@ export function Appointments() {
       if (servicesData.status === 'fulfilled') {
         setServices((servicesData.value || []).filter(s => s.is_active));
       }
+
+      if (schedulesData.status === 'fulfilled') {
+        setScheduleRules(schedulesData.value || []);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -94,6 +107,17 @@ export function Appointments() {
   };
 
   const handleOpenModal = (appointment?: Appointment) => {
+    if (!appointment && !canCreateAppointment) {
+      if (!hasActiveServices) {
+        toast.error('Crea al menos un servicio activo antes de registrar citas');
+      } else if (!hasAvailableSchedule) {
+        toast.error('Configura al menos un día disponible antes de registrar citas');
+      } else if (!hasCustomers) {
+        toast.error('Crea al menos un cliente antes de registrar citas manuales');
+      }
+      return;
+    }
+
     if (appointment) {
       setEditingAppointment(appointment);
       setFormData({
@@ -117,6 +141,39 @@ export function Appointments() {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingAppointment(null);
+    setShowQuickCustomer(false);
+    setQuickCustomer({ name: '', phone: '' });
+  };
+
+  const handleCreateQuickCustomer = async () => {
+    if (!currentBusiness) return;
+    const name = quickCustomer.name.trim();
+    const phone = quickCustomer.phone.trim();
+    if (!name || !phone) {
+      toast.error('Nombre y teléfono del cliente son obligatorios');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const created = await customersAPI.create({
+        business: currentBusiness.id,
+        name,
+        phone,
+        email: '',
+        is_active: true,
+      });
+      setCustomers((prev) => [...prev, created]);
+      setFormData((prev) => ({ ...prev, customer_id: created.id }));
+      setShowQuickCustomer(false);
+      setQuickCustomer({ name: '', phone: '' });
+      toast.success('Cliente creado y seleccionado');
+    } catch (error) {
+      console.error('Error creating quick customer:', error);
+      toast.error('No se pudo crear el cliente');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -187,11 +244,38 @@ export function Appointments() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-foreground">Citas</h1>
-        <Button onClick={() => handleOpenModal()}>
+        <Button onClick={() => handleOpenModal()} disabled={!canCreateAppointment}>
           <Plus className="mr-2 h-4 w-4" />
           Nueva Cita
         </Button>
       </div>
+
+      {!canCreateAppointment && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="flex items-center gap-3 text-sm">
+                <Scissors className={hasActiveServices ? 'h-5 w-5 text-green-600' : 'h-5 w-5 text-muted-foreground'} />
+                <span className={hasActiveServices ? 'text-foreground' : 'text-muted-foreground'}>
+                  Servicio activo
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <CalendarClock className={hasAvailableSchedule ? 'h-5 w-5 text-green-600' : 'h-5 w-5 text-muted-foreground'} />
+                <span className={hasAvailableSchedule ? 'text-foreground' : 'text-muted-foreground'}>
+                  Horario disponible
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <Users className={hasCustomers ? 'h-5 w-5 text-green-600' : 'h-5 w-5 text-muted-foreground'} />
+                <span className={hasCustomers ? 'text-foreground' : 'text-muted-foreground'}>
+                  Cliente registrado
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <Card>
@@ -255,7 +339,17 @@ export function Appointments() {
                     ) : filteredAppointments.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center text-muted-foreground py-12">
-                          {searchQuery || statusFilter !== 'all' ? 'No se encontraron citas' : 'No hay citas registradas'}
+                          {searchQuery || statusFilter !== 'all' ? (
+                            'No se encontraron citas'
+                          ) : (
+                            <EmptyState
+                              icon={<CalendarIcon className="h-6 w-6" />}
+                              title="Todavía no hay citas"
+                              description="Crea una cita manual cuando tengas cliente, servicio y horario, o comparte tu enlace de Telegram."
+                              actionLabel={canCreateAppointment ? 'Nueva cita' : undefined}
+                              onAction={canCreateAppointment ? () => handleOpenModal() : undefined}
+                            />
+                          )}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -343,8 +437,18 @@ export function Appointments() {
             ))
           ) : filteredAppointments.length === 0 ? (
             <Card>
-              <CardContent className="text-center text-muted-foreground py-12">
-                {searchQuery || statusFilter !== 'all' ? 'No se encontraron citas' : 'No hay citas registradas'}
+              <CardContent>
+                {searchQuery || statusFilter !== 'all' ? (
+                  <div className="py-10 text-center text-muted-foreground">No se encontraron citas</div>
+                ) : (
+                  <EmptyState
+                    icon={<CalendarIcon className="h-6 w-6" />}
+                    title="Todavía no hay citas"
+                    description="Cuando tus clientes agenden por Telegram o crees citas manuales, aparecerán aquí."
+                    actionLabel={canCreateAppointment ? 'Nueva cita' : undefined}
+                    onAction={canCreateAppointment ? () => handleOpenModal() : undefined}
+                  />
+                )}
               </CardContent>
             </Card>
           ) : (
@@ -424,6 +528,48 @@ export function Appointments() {
             ]}
             required
           />
+          {!editingAppointment && (
+            <div className="rounded-lg border border-border/50 bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">Cliente rápido</div>
+                  <div className="text-xs text-muted-foreground">
+                    Crea un cliente sin salir de esta cita.
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowQuickCustomer((prev) => !prev)}
+                >
+                  {showQuickCustomer ? 'Ocultar' : 'Crear cliente'}
+                </Button>
+              </div>
+              {showQuickCustomer && (
+                <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                  <Input
+                    label="Nombre"
+                    value={quickCustomer.name}
+                    onChange={(e) => setQuickCustomer({ ...quickCustomer, name: e.target.value })}
+                  />
+                  <Input
+                    label="Teléfono"
+                    value={quickCustomer.phone}
+                    onChange={(e) => setQuickCustomer({ ...quickCustomer, phone: e.target.value })}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    isLoading={isLoading}
+                    onClick={handleCreateQuickCustomer}
+                  >
+                    Agregar
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
           <Select
             label="Servicio"
             value={formData.service_id}

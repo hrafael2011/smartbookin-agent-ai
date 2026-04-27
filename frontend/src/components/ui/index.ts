@@ -7,3 +7,4 @@ export { Card, CardHeader, CardTitle, CardContent } from './Card';
 export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from './Table';
 export { Skeleton } from './Skeleton';
 export { ConfirmationModal } from './ConfirmationModal';
+export { EmptyState } from './EmptyState';

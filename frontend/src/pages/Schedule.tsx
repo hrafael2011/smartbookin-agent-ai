@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Clock, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/components/ui';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input } from '@/components/ui';
 import { scheduleAPI } from '@/services/api';
 import { useBusinessStore } from '@/store/businessStore';
 import {
@@ -140,6 +140,10 @@ export function Schedule() {
 
     try {
       if (!currentBusiness) return;
+      if (schedule.is_available && schedule.start_time >= schedule.end_time) {
+        toast.error('La hora de inicio debe ser anterior a la hora de cierre');
+        return;
+      }
       const formData: ScheduleFormData = {
         day_of_week: schedule.day_of_week,
         is_available: schedule.is_available,
@@ -314,10 +318,19 @@ export function Schedule() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex-1">
-                      <Badge variant="default" className="bg-muted text-muted-foreground">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 flex-1">
+                      <Badge variant="default" className="w-fit bg-muted text-muted-foreground">
                         Cerrado
                       </Badge>
+                      <Button
+                        onClick={() => handleSaveDay(index)}
+                        isLoading={isSaving === index}
+                        size="sm"
+                        className="w-full sm:w-auto"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        Guardar
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -413,9 +426,11 @@ export function Schedule() {
 
           <div className="space-y-3">
             {visibleExceptions.length === 0 ? (
-              <div className="text-sm text-muted-foreground">
-                No hay excepciones registradas para mostrar.
-              </div>
+              <EmptyState
+                icon={<CalendarDays className="h-6 w-6" />}
+                title="Sin excepciones por ahora"
+                description="Agrega cierres por feriados, vacaciones o aperturas especiales cuando lo necesites."
+              />
             ) : (
               visibleExceptions.map((item) => (
                 <div

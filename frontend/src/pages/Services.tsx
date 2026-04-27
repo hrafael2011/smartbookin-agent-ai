@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Scissors } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button, Input, Modal, Card, CardContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Skeleton, ConfirmationModal } from '@/components/ui';
+import { Button, Input, Modal, Card, CardContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Skeleton, ConfirmationModal, EmptyState } from '@/components/ui';
 import { servicesAPI } from '@/services/api';
 import { useBusinessStore } from '@/store/businessStore';
 import { Service, ServiceFormData } from '@/types';
@@ -72,6 +72,19 @@ export function Services() {
     setIsLoading(true);
 
     try {
+      if (!formData.name.trim()) {
+        toast.error('El nombre del servicio es obligatorio');
+        return;
+      }
+      if (Number(formData.duration_minutes) <= 0) {
+        toast.error('La duración debe ser mayor a cero');
+        return;
+      }
+      if (Number(formData.price) < 0) {
+        toast.error('El precio no puede ser negativo');
+        return;
+      }
+
       if (editingService) {
         if (!currentBusiness) return;
         await servicesAPI.update(editingService.id, formData, currentBusiness.id);
@@ -167,7 +180,13 @@ export function Services() {
                   ) : services.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                        No hay servicios registrados
+                        <EmptyState
+                          icon={<Scissors className="h-6 w-6" />}
+                          title="Crea tu primer servicio"
+                          description="Los servicios son lo que tus clientes podrán reservar por Telegram o desde el panel."
+                          actionLabel="Nuevo servicio"
+                          onAction={() => handleOpenModal()}
+                        />
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -238,8 +257,14 @@ export function Services() {
             ))
           ) : services.length === 0 ? (
             <Card>
-              <CardContent className="text-center text-muted-foreground py-8">
-                No hay servicios registrados
+              <CardContent>
+                <EmptyState
+                  icon={<Scissors className="h-6 w-6" />}
+                  title="Crea tu primer servicio"
+                  description="Agrega duración y precio para que el sistema pueda organizar las citas."
+                  actionLabel="Nuevo servicio"
+                  onAction={() => handleOpenModal()}
+                />
               </CardContent>
             </Card>
           ) : (
