@@ -77,13 +77,20 @@ class Config:
     # Redis (opcional: rate limits compartidos entre workers)
     REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
-    # SMTP (verificación de correo)
-    SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-    SMTP_USER = os.getenv("SMTP_USER", "").strip()
-    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
-    SMTP_FROM = os.getenv("SMTP_FROM", "noreply@localhost").strip()
-    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+    # SMTP (verificación de correo) — deshabilitado; AUTO_VERIFY_EMAIL=true omite el envío.
+    # Descomentar y configurar las variables de entorno correspondientes para habilitar.
+    # SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+    # SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))  # falla si la variable existe pero está vacía
+    # SMTP_USER = os.getenv("SMTP_USER", "").strip()
+    # SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+    # SMTP_FROM = os.getenv("SMTP_FROM", "noreply@localhost").strip()
+    # SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("1", "true", "yes")
+    SMTP_HOST = ""
+    SMTP_PORT = 587
+    SMTP_USER = ""
+    SMTP_PASSWORD = ""
+    SMTP_FROM = "noreply@localhost"
+    SMTP_USE_TLS = True
 
     # URL del front para enlaces en correos (sin barra final)
     FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
