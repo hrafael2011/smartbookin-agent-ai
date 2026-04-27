@@ -1,0 +1,215 @@
+
+
+services:
+  api-backend:
+    build: ./backend/api-backend
+    entrypoint: ["/app/entrypoint.sh"]
+    volumes:
+      - ./backend/api-backend:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    # Sin recrear el contenedor, nuevas claves en .env no se aplican; además default para pruebas
+    environment:
+      DISABLE_USAGE_LIMITS: ${DISABLE_USAGE_LIMITS:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: smartbooking
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d smartbooking"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # Construye el frontend y deja dist/ en volumen compartido
+  frontend-build:
+    build: ./frontend
+    working_dir: /app
+    command: >
+      sh -c "rm -rf /var/www/app/dist &&
+             cp -r dist /var/www/app/dist"
+    volumes:
+      - webroot:/var/www/app
+    restart: "no"
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      frontend-build:
+        condition: service_completed_successfully
+      api-backend:
+        condition: service_started
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx_new_default.conf:/etc/nginx/conf.d/default.conf:ro
+      - webroot:/var/www/app
+      
+      
+    restart: unless-stopped
+
+  # Túnel HTTPS hacia Nginx (app + /api + /webhooks). Requiere token en .env: AUTO_TOKEN_NGROK
+  # Uso: docker compose --profile ngrok up -d
+  # Luego: ./scripts/telegram-webhook-sync.sh
+  ngrok:
+    image: ngrok/ngrok:latest
+    profiles: ["ngrok"]
+    depends_on:
+      nginx:
+        condition: service_started
+    environment:
+      NGROK_AUTHTOKEN: ${AUTO_TOKEN_NGROK:-}
+    command: ["http", "--log=stdout", "http://nginx:80"]
+    ports:
+      - "4040:4040"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  webroot:
+  staticfiles:
+
+
+
+# Estructura mínima de carpetas esperada:
+# .
+# ├── backend
+# │   ├── web-backend
+# │   │   ├── Dockerfile
+# │   │   ├── entrypoint.sh
+# │   │   ├── wait-for-it.sh
+# │   │   ├── core/
+# │   │   │   └── __init__.py
+# │   │   └── manage.py
+# │   └── agent-service
+# │       ├── Dockerfile
+# │       └── main.py
+# ├── frontend
+# │   └── Dockerfile
+# ├── .env
+# ├── docker-compose.yml
+# └── README.md
+
+
+# Contenidos de los archivos base:
+
+# backend/web-backend/Dockerfile
+# -----------------------------
+# FROM python:3.11-slim
+# WORKDIR /app
+# COPY requirements.txt .
+# RUN pip install --no-cache-dir -r requirements.txt
+# COPY . .
+# RUN chmod +x entrypoint.sh && chmod +x wait-for-it.sh
+
+
+# backend/web-backend/entrypoint.sh
+# --------------------------------
+# #!/bin/sh
+# set -e
+#
+# echo "Esperando a Postgres..."
+# ./wait-for-it.sh postgres:5432 --timeout=30 --strict -- echo "Postgres disponible"
+#
+# echo "Esperando a Redis..."
+# ./wait-for-it.sh redis:6379 --timeout=30 --strict -- echo "Redis disponible"
+#
+# if [ "$1" = "celery" ]; then
+#     echo "Iniciando Celery worker..."
+#     exec celery -A core worker -l info
+# else
+#     echo "Iniciando Django..."
+#     exec python manage.py runserver 0.0.0.0:8000
+# fi
+
+
+# backend/web-backend/wait-for-it.sh
+# ----------------------------------
+# Copiado desde https://github.com/vishnubob/wait-for-it (versión oficial)
+
+
+# backend/web-backend/manage.py
+# -----------------------------
+# (Archivo generado por Django luego de django-admin startproject)
+
+
+# backend/web-backend/core/__init__.py
+# ------------------------------------
+# (Archivo vacío para marcar como paquete Python)
+
+
+# backend/agent-service/Dockerfile
+# --------------------------------
+# FROM python:3.11-slim
+# WORKDIR /app
+# COPY requirements.txt .
+# RUN pip install --no-cache-dir -r requirements.txt
+# COPY . .
+
+
+# backend/agent-service/main.py
+# -----------------------------
+# from fastapi import FastAPI
+#
+# app = FastAPI()
+#
+# @app.get("/ping")
+# def ping():
+#     return {"status": "ok"}
+
+
+# frontend/Dockerfile
+# -------------------
+# FROM node:18-alpine
+# WORKDIR /app
+# COPY package*.json ./
+# RUN npm install
+# COPY . .
+# EXPOSE 5173
+# CMD ["npm", "run", "dev"]
+
+
+# .env
+# ----
+# DJANGO_SECRET_KEY=clave_secreta_real
+# DATABASE_URL=postgresql://postgres:postgres@postgres:5432/smartbooking
+# REDIS_URL=redis://redis:6379/0
+# TIMEZONE=America/Santo_Domingo
+# OPENAI_API_KEY=tu_clave_openai
+# META_WABA_TOKEN=token_sandbox
+# META_APP_SECRET=clave_sandbox
+# META_VERIFY_TOKEN=verificador_sandbox
+# GOOGLE_MAPS_API_KEY=tu_api_key_maps
+
+
+# README.md
+# ---------
+# # SmartBooking AI – Entorno local
+#
+# ## Requisitos
+# - Docker y Docker Compose
+#
+# ## Pasos para levantar el entorno
+# ```bash
+# cp .env.example .env
+# docker-compose up --build
+# ```
+#
+# Accesos:
+# - Django API: http://localhost:8000
+# - FastAPI Agent: http://localhost:8001/ping
+# - Frontend: http://localhost:5173

@@ -1,0 +1,14 @@
+.env
+ngrok.log
+.codex/
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.venv/
+**/venv/
+
+# Node
+**/node_modules/
+**/dist/

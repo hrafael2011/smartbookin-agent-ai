@@ -1,0 +1,5 @@
+# Una línea = un mensaje del usuario (orden del diálogo)
+# Reemplazá YOUR_INVITE_TOKEN por el token del negocio en el panel Telegram
+/start YOUR_INVITE_TOKEN
+María
+1
