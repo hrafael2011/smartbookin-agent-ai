@@ -4,6 +4,10 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+DEFAULT_OPERATIONAL_TIMEZONE = "America/Santo_Domingo"
+DEFAULT_OPERATIONAL_TZ = ZoneInfo(DEFAULT_OPERATIONAL_TIMEZONE)
 
 _WEEKDAYS = {
     "lunes": 0,
@@ -34,7 +38,7 @@ _MONTHS = {
 
 
 def _next_weekday_from_today(target_weekday: int, today: Optional[date] = None) -> date:
-    today = today or date.today()
+    today = today or datetime.now(DEFAULT_OPERATIONAL_TZ).date()
     days_ahead = (target_weekday - today.weekday()) % 7
     if days_ahead == 0:
         days_ahead = 7
@@ -48,7 +52,7 @@ def resolve_date_from_spanish_text(text: str, today: Optional[date] = None) -> O
     """
     if not text or not str(text).strip():
         return None
-    today = today or date.today()
+    today = today or datetime.now(DEFAULT_OPERATIONAL_TZ).date()
     t = str(text).lower().strip()
 
     if t in ("hoy", "today"):

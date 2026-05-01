@@ -164,10 +164,12 @@ export default function Login() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span className="font-medium">Demo:</span>
-              <span className="font-mono bg-background px-2 py-0.5 rounded">admin@smartbooking.com</span>
+              <span className="font-medium">Demo (seed local):</span>
+              <span className="font-mono bg-background px-2 py-0.5 rounded text-[10px] sm:text-xs">
+                barberia.excelencia.demo@local.test
+              </span>
               <span>/</span>
-              <span className="font-mono bg-background px-2 py-0.5 rounded">admin123</span>
+              <span className="font-mono bg-background px-2 py-0.5 rounded">ExcelenciaDemo2026!</span>
             </div>
           </div>
         </div>

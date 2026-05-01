@@ -309,3 +309,55 @@ async def test_orchestrator_idle_short_modify_word_routes(monkeypatch):
 
     out = await orch.run_conversation_turn(1, "w:99", "cambiar")
     assert out == "MODIFY_HANDLER_OK"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_low_confidence_returns_guided_menu(monkeypatch):
+    base_ctx = {
+        "business_id": 1,
+        "phone_number": "w:99",
+        "state": State.IDLE.value,
+        "current_intent": None,
+        "customer_id": 1,
+        "customer_name": "Ana",
+        "pending_data": {},
+        "recent_messages": [],
+    }
+
+    async def save_msg(*_a, **_k):
+        return None
+
+    async def get_ctx(_bid, _uk):
+        return dict(base_ctx)
+
+    async def fake_build_customer_context(*_a, **_k):
+        return ""
+
+    async def fake_nlu_process(*_a, **_k):
+        return {
+            "intent": Intent.BOOK_APPOINTMENT.value,
+            "confidence": 0.1,
+            "entities": {},
+            "missing": [],
+            "response_text": "respuesta abierta del modelo",
+            "raw_understanding": "low_confidence",
+        }
+
+    async def fail_book(*_a, **_k):
+        raise AssertionError("Low confidence must not dispatch to mutation handlers")
+
+    async def passthrough_coherent(bid, uk, ctx):
+        return ctx
+
+    monkeypatch.setattr(orch.conversation_manager, "save_message", save_msg)
+    monkeypatch.setattr(orch.conversation_manager, "get_context", get_ctx)
+    monkeypatch.setattr(orch, "ensure_coherent_context", passthrough_coherent)
+    monkeypatch.setattr(orch, "build_customer_context_for_nlu", fake_build_customer_context)
+    monkeypatch.setattr(orch.nlu_engine, "process", fake_nlu_process)
+    monkeypatch.setattr(orch, "try_booking_flow_synthetic_nlu", lambda **kw: None)
+    monkeypatch.setattr(orch, "handle_book_appointment", fail_book)
+
+    out = await orch.run_conversation_turn(1, "w:99", "no se algo raro")
+
+    assert "podés elegir una opción" in out.lower()
+    assert "respuesta abierta del modelo" not in out

@@ -1,7 +1,6 @@
 /**
  * Sidebar Navigation Component
  */
-import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useBusinessStore } from '@/store/businessStore'
@@ -15,12 +14,9 @@ import {
   LogOut,
   Store,
   MessageCircle,
-  Plus,
   Settings,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
-import { Button, Modal, Select } from '@/components/ui'
-import BusinessOnboarding from '@/pages/BusinessOnboarding'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -35,20 +31,11 @@ const navigation = [
 
 export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
   const { user, logout } = useAuthStore()
-  const { businesses, currentBusiness, setCurrentBusiness } = useBusinessStore()
-  const [isCreateBusinessOpen, setIsCreateBusinessOpen] = useState(false)
+  const { businesses, currentBusiness } = useBusinessStore()
 
   const handleLogout = async () => {
     await logout()
     window.location.href = '/login'
-  }
-
-  const handleBusinessChange = (businessId: string) => {
-    const selected = businesses.find((business) => business.id === Number(businessId))
-    if (selected) {
-      setCurrentBusiness(selected)
-      onItemClick?.()
-    }
   }
 
   return (
@@ -67,28 +54,12 @@ export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
           <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
             Negocio actual
           </div>
-          {businesses.length > 1 ? (
-            <Select
-              value={currentBusiness.id}
-              onChange={(event) => handleBusinessChange(event.target.value)}
-              options={businesses.map((business) => ({
-                value: business.id,
-                label: business.name,
-              }))}
-            />
-          ) : (
-            <div className="font-medium truncate text-sm">{currentBusiness.name}</div>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="w-full"
-            onClick={() => setIsCreateBusinessOpen(true)}
-          >
-            <Plus className="h-4 w-4" />
-            Nuevo negocio
-          </Button>
+          <div className="font-medium truncate text-sm">{currentBusiness.name}</div>
+          <div className="rounded-md border border-border/50 bg-background/50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+            {businesses.length > 1
+              ? 'Hay más de un negocio heredado. Contacta soporte para resolverlo antes de activar funciones nuevas.'
+              : 'MVP: un negocio por dueño. Multi-negocio estará disponible en planes de pago.'}
+          </div>
         </div>
       )}
 
@@ -138,17 +109,6 @@ export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
         </div>
       </div>
 
-      <Modal
-        isOpen={isCreateBusinessOpen}
-        onClose={() => setIsCreateBusinessOpen(false)}
-        title="Crear negocio"
-        size="lg"
-      >
-        <BusinessOnboarding
-          compact
-          onCreated={() => setIsCreateBusinessOpen(false)}
-        />
-      </Modal>
     </div>
   )
 }

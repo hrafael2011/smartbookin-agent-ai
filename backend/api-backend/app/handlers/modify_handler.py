@@ -1,6 +1,7 @@
 """
 Handler para el intent modify_appointment (reagendar)
 """
+import logging
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -9,6 +10,8 @@ from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.utils.date_parse import format_date_human_es
 from app.utils.time_parser import parse_time_candidates, pick_exact_slot, sort_slots_by_requested_time
+
+logger = logging.getLogger(__name__)
 
 
 def _slots_modify_list(slots: List[Dict], limit: int = 8) -> str:
@@ -356,6 +359,14 @@ async def handle_modify_appointment(nlu_result: Dict, context: Dict) -> str:
             updated_appt = await db_service.update_appointment(
                 appointment_id=selected_appointment_id,
                 update_data=update_data
+            )
+            logger.info(
+                "appointment_modified business=%s user=%s customer=%s appointment=%s slot=%s",
+                business_id,
+                phone_number,
+                customer_id,
+                selected_appointment_id,
+                selected_slot.get("start_time"),
             )
 
             # Limpiar contexto

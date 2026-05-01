@@ -1,4 +1,19 @@
 ================================================================================
+NOTA HISTÓRICA
+================================================================================
+
+Este archivo resume una etapa anterior del proyecto y conserva referencias a una
+arquitectura Django + Agent Service separado. Para decisiones actuales, usar como
+fuente de verdad:
+
+- .specify/memory/constitution.md
+- specs/000-project-baseline/
+- specs/001-guided-menu-bot/
+
+La arquitectura vigente documentada en la baseline es FastAPI + SQLAlchemy +
+Alembic + React/Vite, con WhatsApp y Telegram como canales conversacionales.
+
+================================================================================
                     🚀 SMARTBOOKING AI - RESUMEN DEL PROYECTO
 ================================================================================
 

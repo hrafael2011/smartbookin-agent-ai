@@ -6,8 +6,9 @@ services:
     entrypoint: ["/app/entrypoint.sh"]
     volumes:
       - ./backend/api-backend:/app
+    # Puerto en el host (si 8000 está ocupado: API_BACKEND_HOST_PORT=18008 en `.env`)
     ports:
-      - "8000:8000"
+      - "${API_BACKEND_HOST_PORT:-8000}:8000"
     env_file:
       - .env
     # Sin recrear el contenedor, nuevas claves en .env no se aplican; además default para pruebas
@@ -54,7 +55,7 @@ services:
       api-backend:
         condition: service_started
     ports:
-      - "8080:80"
+      - "${NGINX_HOST_PORT:-8080}:80"
     volumes:
       - ./nginx_new_default.conf:/etc/nginx/conf.d/default.conf:ro
       - webroot:/var/www/app

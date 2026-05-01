@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 from app.config import config
 from app.core.conversation_states import Intent, State
-from app.core.response_builder import EMPTY_REPLY_PLACEHOLDER, FALLBACK_LOW_CONFIDENCE
+from app.core.response_builder import EMPTY_REPLY_PLACEHOLDER
 from app.core.state_machine import ensure_coherent_context
 from app.handlers.booking_handler import (
     handle_book_appointment,
@@ -333,7 +333,10 @@ async def run_conversation_turn(
                 )
 
     if confidence < config.CONFIDENCE_THRESHOLD:
-        response_text = FALLBACK_LOW_CONFIDENCE
+        response_text = (
+            "No estoy seguro de qué querés hacer. Elegí una opción:\n\n"
+            f"{guided_menu(context.get('customer_name') or '')}"
+        )
     elif intent == Intent.BOOK_APPOINTMENT.value:
         response_text = await handle_book_appointment(nlu_result, context)
     elif intent == Intent.CHECK_APPOINTMENT.value:

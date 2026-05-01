@@ -179,3 +179,107 @@ def test_booking_confirmation_yes_creates_appointment(monkeypatch):
         assert "confirmada" in resp.lower()
 
     asyncio.run(_run())
+
+
+def test_booking_confirmation_revalidates_slot_before_create(monkeypatch):
+    async def _run():
+        called = {"created": False, "updated": None}
+
+        async def fake_get_availability(**_kwargs):
+            return {"available_slots": []}
+
+        async def fake_create_appointment(_data):
+            called["created"] = True
+            return {"id": 123}
+
+        async def fake_update_context(_bid, _phone, payload):
+            called["updated"] = payload
+            return None
+
+        monkeypatch.setattr(booking_handler.db_service, "get_availability", fake_get_availability)
+        monkeypatch.setattr(booking_handler.db_service, "create_appointment", fake_create_appointment)
+        monkeypatch.setattr(booking_handler.conversation_manager, "update_context", fake_update_context)
+
+        context = {
+            "business_id": 1,
+            "phone_number": "tg:1",
+            "customer_id": 7,
+            "customer_name": "Ana",
+            "pending_data": {
+                "service_id": 3,
+                "service": "Corte",
+                "date": "2026-04-10",
+                "selected_slot": {
+                    "start_time": "10:00 AM",
+                    "start_datetime": "2026-04-10T10:00:00",
+                    "end_datetime": "2026-04-10T10:30:00",
+                },
+                "available_slots": [],
+            },
+        }
+
+        resp = await booking_handler.handle_booking_confirmation(
+            {"_raw_user_text": "sí"},
+            context,
+        )
+
+        assert called["created"] is False
+        assert called["updated"]["state"] == "awaiting_slot_selection"
+        assert "ya no está disponible" in resp.lower()
+
+    asyncio.run(_run())
+
+
+def test_direct_shortcut_enters_guided_flow_without_creating(monkeypatch):
+    async def _run():
+        captured = {"context": None, "created": False}
+
+        async def fake_get_services(_business_id):
+            return [{"id": 3, "name": "Corte", "price": 500, "duration_minutes": 30}]
+
+        async def fake_get_availability(**_kwargs):
+            return {
+                "available_slots": [
+                    {
+                        "start_time": "10:00 AM",
+                        "start_datetime": "2026-04-10T10:00:00",
+                        "end_datetime": "2026-04-10T10:30:00",
+                    }
+                ]
+            }
+
+        async def fake_update_context(_bid, _phone, payload):
+            captured["context"] = payload
+            return None
+
+        async def fake_create_appointment(_data):
+            captured["created"] = True
+            return {"id": 123}
+
+        monkeypatch.setattr(booking_handler.db_service, "get_business_services", fake_get_services)
+        monkeypatch.setattr(booking_handler.db_service, "get_availability", fake_get_availability)
+        monkeypatch.setattr(booking_handler.db_service, "create_appointment", fake_create_appointment)
+        monkeypatch.setattr(booking_handler.conversation_manager, "update_context", fake_update_context)
+
+        context = {
+            "business_id": 1,
+            "phone_number": "tg:1",
+            "customer_id": 7,
+            "customer_name": "Ana",
+            "pending_data": {},
+        }
+        nlu = {
+            "_raw_user_text": "quiero cita mañana a las 10",
+            "entities": {"service": "Corte", "date": "2026-04-10", "time": "10:00"},
+        }
+
+        resp = await booking_handler.handle_book_appointment(nlu, context)
+
+        assert captured["created"] is False
+        assert captured["context"]["state"] in {
+            "awaiting_slot_selection",
+            "awaiting_booking_confirmation",
+        }
+        assert "confirmada" not in resp.lower()
+
+    asyncio.run(_run())

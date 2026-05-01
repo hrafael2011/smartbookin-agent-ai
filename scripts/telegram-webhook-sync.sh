@@ -16,7 +16,7 @@ if [[ -f "$ROOT/.env" ]]; then
 fi
 
 if [[ -z "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-  echo "Error: definí TELEGRAM_BOT_TOKEN en version_simplificada/.env"
+  echo "Error: definí TELEGRAM_BOT_TOKEN en la raíz del repo (.env)"
   exit 1
 fi
 
@@ -61,4 +61,5 @@ curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" | py
 echo ""
 echo "Listo. Panel y API por el mismo host:"
 echo "  $BASE/"
-echo "  $BASE/api/docs"
+echo "  $BASE/docs   (OpenAPI / Swagger)"
+echo "  $BASE/api/... (rutas REST bajo /api)"

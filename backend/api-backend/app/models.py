@@ -1,4 +1,17 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, Text, JSON, Time, Float, Date
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    ForeignKey,
+    DateTime,
+    Text,
+    JSON,
+    Time,
+    Float,
+    Date,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.core.database import Base
@@ -53,6 +66,7 @@ class Business(Base):
     longitude = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
     daily_notification_enabled = Column(Boolean, default=True)
+    timezone = Column(String, nullable=True, default="America/Santo_Domingo")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     telegram_invite_token = Column(String, unique=True, nullable=True, index=True)
     telegram_first_contact_at = Column(DateTime(timezone=True), nullable=True)
@@ -68,6 +82,12 @@ class Business(Base):
     schedule_rules = relationship("ScheduleRule", back_populates="business", cascade="all, delete")
     time_blocks = relationship("TimeBlock", back_populates="business", cascade="all, delete")
     schedule_exceptions = relationship("ScheduleException", back_populates="business", cascade="all, delete")
+    processed_channel_events = relationship(
+        "ProcessedChannelEvent", back_populates="business", cascade="all, delete"
+    )
+    owner_channel_bindings = relationship(
+        "OwnerChannelBinding", back_populates="business", cascade="all, delete"
+    )
     telegram_user_bindings = relationship(
         "TelegramUserBinding", back_populates="business", cascade="all, delete"
     )
@@ -87,6 +107,33 @@ class TelegramUserBinding(Base):
     )
 
     business = relationship("Business", back_populates="telegram_user_bindings")
+
+
+class OwnerChannelBinding(Base):
+    __tablename__ = "owner_channel_bindings"
+    __table_args__ = (
+        UniqueConstraint(
+            "channel",
+            "channel_user_id",
+            name="uq_owner_channel_bindings_channel_user",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    channel = Column(String(32), nullable=False, index=True)
+    channel_user_id = Column(String, nullable=True, index=True)
+    role = Column(String(32), nullable=False, default="owner")
+    is_active = Column(Boolean, default=False, nullable=False)
+    activation_token = Column(String(64), unique=True, nullable=True, index=True)
+    activation_expires_at = Column(DateTime(timezone=True), nullable=True)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    business = relationship("Business", back_populates="owner_channel_bindings")
+    owner = relationship("Owner")
 
 
 class ScheduleRule(Base):
@@ -209,3 +256,29 @@ class ConversationState(Base):
 
     business_id = Column(Integer, ForeignKey("businesses.id"))
     business = relationship("Business", back_populates="conversation_states")
+
+
+class ProcessedChannelEvent(Base):
+    __tablename__ = "processed_channel_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "channel",
+            "business_id",
+            "user_key",
+            "event_id",
+            name="uq_processed_channel_events_identity",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    channel = Column(String(32), nullable=False, index=True)
+    user_key = Column(String, nullable=False, index=True)
+    event_id = Column(String, nullable=False)
+    processed_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    business_id = Column(Integer, ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False)
+    business = relationship("Business", back_populates="processed_channel_events")

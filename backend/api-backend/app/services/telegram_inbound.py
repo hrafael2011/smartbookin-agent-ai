@@ -3,10 +3,6 @@ import logging
 import re
 from typing import Optional
 
-from app.handlers.cancel_handler import handle_cancel_appointment
-from app.handlers.check_handler import handle_check_appointment
-from app.handlers.modify_handler import handle_modify_appointment
-from app.handlers.business_info_handler import handle_business_info
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.services.telegram_client import telegram_client
@@ -18,14 +14,24 @@ from app.services.telegram_link_service import (
     set_user_binding,
     tg_chat_key,
 )
-from app.utils.conversation_routing import (
-    classify_route,
-    guided_menu,
-    is_affirmative,
-    is_reserved_customer_display_name,
-    parse_menu_choice,
+from app.services.guided_menu_router import execute_guided_route, route_guided_message
+from app.services.idempotency import should_process_channel_event
+from app.services.owner_channel_service import (
+    activate_owner_telegram_binding,
+    get_owner_binding_by_telegram_user_id,
+    is_owner_start_payload,
 )
-from app.services.no_services_nlu import NO_SERVICES_GENERIC
+from app.services.owner_command_router import (
+    execute_owner_route,
+    looks_like_owner_command,
+    owner_menu,
+    owner_user_key,
+    route_owner_command,
+)
+from app.utils.conversation_routing import (
+    guided_menu,
+    is_reserved_customer_display_name,
+)
 from app.core.orchestrator import run_conversation_turn
 
 logger = logging.getLogger(__name__)
@@ -65,6 +71,26 @@ async def _send_welcome_for_business(business_id: int, chat_id: str) -> None:
     await telegram_client.send_text_message(chat_id=chat_id, message=msg)
     user_key = tg_chat_key(chat_id)
     await _after_welcome_onboarding(business_id, user_key, chat_id)
+
+
+async def _send_owner_activation_result(chat_id: str, result: dict) -> None:
+    status = result.get("status")
+    if status == "ok":
+        await telegram_client.send_text_message(
+            chat_id=chat_id,
+            message=(
+                "Canal del dueño activado correctamente.\n\n"
+                f"{owner_menu(result.get('business_name') or 'tu negocio')}"
+            ),
+        )
+        return
+    if status == "expired":
+        msg = "Este enlace de activación del dueño expiró. Generá uno nuevo desde el panel."
+    elif status == "channel_user_conflict":
+        msg = "Este Telegram ya está vinculado a otro dueño. Contacta soporte si necesitás cambiarlo."
+    else:
+        msg = "El enlace de activación del dueño no es válido. Generá uno nuevo desde el panel."
+    await telegram_client.send_text_message(chat_id=chat_id, message=msg)
 
 
 async def _after_welcome_onboarding(business_id: int, user_key: str, chat_id: str) -> None:
@@ -120,56 +146,6 @@ def _is_plausible_display_name(text: str) -> bool:
     return True
 
 
-async def _handle_guided_menu_choice(
-    business_id: int,
-    user_key: str,
-    message_text: str,
-    context: dict,
-) -> Optional[str]:
-    choice = parse_menu_choice(message_text)
-    if not choice:
-        return None
-
-    if choice == "menu":
-        return guided_menu(context.get("customer_name") or "")
-
-    if choice == "1":
-        services = await db_service.get_business_services(business_id)
-        if not services:
-            return NO_SERVICES_GENERIC
-        services_text = "\n".join(
-            [f"  • {s['name']} (${s['price']}, {s['duration_minutes']} min)" for s in services]
-        )
-        await conversation_manager.update_context(
-            business_id,
-            user_key,
-            {"current_intent": "book_appointment", "state": "awaiting_service", "pending_data": {}},
-        )
-        return f"Perfecto. ¿Qué servicio querés reservar?\n\n{services_text}"
-
-    if choice == "2":
-        return await handle_check_appointment({}, context)
-
-    if choice == "3":
-        await conversation_manager.update_context(
-            business_id,
-            user_key,
-            {"current_intent": "modify_appointment", "state": "awaiting_appointment_selection_modify"},
-        )
-        return "Perfecto. Decime qué cita querés cambiar y te ayudo."
-
-    if choice == "4":
-        await conversation_manager.update_context(
-            business_id,
-            user_key,
-            {"current_intent": "cancel_appointment", "state": "awaiting_appointment_selection"},
-        )
-        return "Entendido. Decime cuál cita querés cancelar."
-
-    # choice == "5"
-    return await handle_business_info(business_id)
-
-
 async def _handle_telegram_display_name_capture(
     business_id: int, user_key: str, message_text: str
 ) -> str:
@@ -186,10 +162,7 @@ async def _handle_telegram_display_name_capture(
     )
     await conversation_manager.update_context(business_id, user_key, {"state": "idle"})
     nm = customer["name"] or display
-    return (
-        f"¡Gracias, <b>{nm}</b>! Ya te tengo presente. "
-        "Decime qué necesitás: turno, consulta de citas o lo que prefieras."
-    )
+    return f"¡Gracias, <b>{nm}</b>! Ya te tengo presente.\n\n{guided_menu(nm)}"
 
 
 async def _run_nlu_pipeline(business_id: int, user_key: str, message_text: str) -> str:
@@ -237,6 +210,14 @@ async def process_telegram_update(payload: dict) -> dict:
             parts = raw_text.strip().split(maxsplit=1)
             arg = parts[1].strip() if len(parts) > 1 else ""
             if arg:
+                if is_owner_start_payload(arg):
+                    result = await activate_owner_telegram_binding(
+                        payload=arg,
+                        telegram_user_id=telegram_user_id,
+                    )
+                    await _send_owner_activation_result(chat_id, result)
+                    return {"status": "ok"}
+
                 bid = await resolve_invite_token(arg)
                 if bid:
                     await set_user_binding(telegram_user_id, bid)
@@ -247,6 +228,23 @@ async def process_telegram_update(payload: dict) -> dict:
             else:
                 # Telegram a menudo manda solo "/start" (sin payload) al reabrir el chat;
                 # si ya hay vínculo, repetimos bienvenida en lugar de pedir el enlace otra vez.
+                owner_binding = await get_owner_binding_by_telegram_user_id(
+                    telegram_user_id
+                )
+                if owner_binding:
+                    # Reset any active owner flow so /start always lands on the menu
+                    _o_key = owner_user_key(telegram_user_id)
+                    _o_bid = int(owner_binding["business_id"])
+                    await conversation_manager.update_context(
+                        _o_bid, _o_key,
+                        {"current_intent": "owner_command", "pending_data": {}, "state": "idle"},
+                    )
+                    await telegram_client.send_text_message(
+                        chat_id=chat_id,
+                        message=owner_menu(owner_binding.get("business_name") or "tu negocio"),
+                    )
+                    return {"status": "ok"}
+
                 existing_bid = await get_binding_business_id(telegram_user_id)
                 if existing_bid is not None:
                     await _send_welcome_for_business(existing_bid, chat_id)
@@ -260,8 +258,56 @@ async def process_telegram_update(payload: dict) -> dict:
                     )
             return {"status": "ok"}
 
+        owner_binding = await get_owner_binding_by_telegram_user_id(telegram_user_id)
+        if owner_binding:
+            business_id = int(owner_binding["business_id"])
+            user_key = owner_user_key(telegram_user_id)
+            if not await should_process_channel_event(
+                channel="telegram_owner",
+                business_id=business_id,
+                user_key=user_key,
+                event_id=message_data.get("message_id"),
+            ):
+                return {"status": "ok"}
+
+            ctx = await conversation_manager.get_context(business_id, user_key)
+            decision = route_owner_command(message_text, ctx)
+            response_text = await execute_owner_route(
+                business_id,
+                user_key,
+                decision,
+                ctx,
+                owner_id=int(owner_binding["owner_id"]),
+                business_name=owner_binding.get("business_name") or "tu negocio",
+            )
+            logger.info(
+                "tg_route owner_router kind=%s business=%s user=%s",
+                decision.kind,
+                business_id,
+                telegram_user_id,
+            )
+            await conversation_manager.save_message(
+                business_id, user_key, "user", message_text
+            )
+            await conversation_manager.save_message(
+                business_id, user_key, "assistant", response_text
+            )
+            await telegram_client.send_text_message(
+                chat_id=chat_id,
+                message=response_text,
+            )
+            return {"status": "ok"}
+
         business_id: Optional[int] = await get_binding_business_id(telegram_user_id)
         user_key = tg_chat_key(chat_id)
+
+        if business_id is not None and not await should_process_channel_event(
+            channel="telegram",
+            business_id=business_id,
+            user_key=user_key,
+            event_id=message_data.get("message_id"),
+        ):
+            return {"status": "ok"}
 
         if business_id is not None:
             ctx_onb = await conversation_manager.get_context(business_id, user_key)
@@ -303,10 +349,12 @@ async def process_telegram_update(payload: dict) -> dict:
         if business_id is not None:
             from app.services.rate_limit_async import consume_daily_quota
 
+            ctx = await conversation_manager.get_context(business_id, user_key)
+            decision = route_guided_message(message_text, ctx)
             quota = await consume_daily_quota(
                 business_id=business_id,
                 user_channel_id=telegram_user_id,
-                is_ai_message=classify_route(message_text) == "ai",
+                is_ai_message=decision.uses_ai,
             )
             if not quota["allowed"]:
                 logger.info(
@@ -320,38 +368,23 @@ async def process_telegram_update(payload: dict) -> dict:
                 )
                 return {"status": "ok"}
 
-            ctx = await conversation_manager.get_context(business_id, user_key)
-            last_assistant = ""
-            for msg in reversed(ctx.get("recent_messages", [])):
-                if msg.get("role") == "assistant":
-                    last_assistant = str(msg.get("content") or "").lower()
-                    break
-            if (
-                ctx.get("state", "idle") == "idle"
-                and is_affirmative(message_text)
-                and ("agendar una" in last_assistant or "agendar" in last_assistant)
-            ):
-                guided = await _handle_guided_menu_choice(
-                    business_id, user_key, "1", ctx
+            guided = await execute_guided_route(business_id, user_key, decision, ctx)
+            if guided:
+                logger.info(
+                    "tg_route guided_router kind=%s business=%s user=%s",
+                    decision.kind,
+                    business_id,
+                    telegram_user_id,
                 )
-                if guided:
-                    logger.info("tg_route yes_to_booking business=%s user=%s", business_id, telegram_user_id)
-                    await telegram_client.send_text_message(chat_id=chat_id, message=guided)
-                    return {"status": "ok"}
-            # Importante: si hay un flujo activo, no consumir números como menú global.
-            if ctx.get("state", "idle") == "idle":
-                guided = await _handle_guided_menu_choice(
-                    business_id, user_key, message_text, ctx
+                await conversation_manager.save_message(
+                    business_id, user_key, "user", message_text
                 )
-                if guided:
-                    logger.info("tg_route guided_menu_choice business=%s user=%s", business_id, telegram_user_id)
-                    await telegram_client.send_text_message(chat_id=chat_id, message=guided)
-                    return {"status": "ok"}
-            if classify_route(message_text) == "menu" and ctx.get("state", "idle") == "idle":
-                logger.info("tg_route guided_menu_random business=%s user=%s", business_id, telegram_user_id)
+                await conversation_manager.save_message(
+                    business_id, user_key, "assistant", guided
+                )
                 await telegram_client.send_text_message(
                     chat_id=chat_id,
-                    message=guided_menu(ctx.get("customer_name") or ""),
+                    message=guided,
                 )
                 return {"status": "ok"}
 
@@ -366,6 +399,15 @@ async def process_telegram_update(payload: dict) -> dict:
                     return {"status": "ok"}
                 await _reply_invalid_invite_attempt(chat_id, telegram_user_id)
                 return {"status": "ok"}
+            if looks_like_owner_command(candidate):
+                await telegram_client.send_text_message(
+                    chat_id=chat_id,
+                    message=(
+                        "Para usar el canal del dueño, vinculá este Telegram desde el panel "
+                        "del negocio y abrí el enlace de activación."
+                    ),
+                )
+                return {"status": "ok"}
             await telegram_client.send_text_message(
                 chat_id=chat_id,
                 message=(
@@ -376,8 +418,19 @@ async def process_telegram_update(payload: dict) -> dict:
             )
             return {"status": "ok"}
 
+        logger.info(
+            "tg_route pass_through kind=%s uses_ai=%s business=%s user=%s",
+            decision.kind,
+            decision.uses_ai,
+            business_id,
+            telegram_user_id,
+        )
         response_text = await _run_nlu_pipeline(business_id, user_key, message_text)
-        logger.info("tg_route ai_pipeline business=%s user=%s", business_id, telegram_user_id)
+        logger.info(
+            "tg_route ai_pipeline business=%s user=%s",
+            business_id,
+            telegram_user_id,
+        )
         await telegram_client.send_text_message(chat_id=chat_id, message=response_text)
         return {"status": "ok"}
 

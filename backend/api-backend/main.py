@@ -1,13 +1,13 @@
 """
 Agent Service - NLU con GPT-4o-mini para WhatsApp Bot
 """
+import logging
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 
 import sentry_sdk
 from fastapi.middleware.cors import CORSMiddleware
-from app.prompts.system_prompt import FIRST_TIME_GREETING, GREETING_RESPONSE
 from app.config import config
 from app.api import (
     auth,
@@ -20,25 +20,22 @@ from app.api import (
     dashboard,
 )
 from app.services import db_service, whatsapp_client, conversation_manager
-from app.services.no_services_nlu import NO_SERVICES_GENERIC
 from app.services.background_tasks import (
     generate_daily_agenda,
     process_appointment_reminders,
     process_waitlist_expiration,
 )
 from app.services.telegram_inbound import process_telegram_update
-from app.handlers.check_handler import handle_check_appointment
-from app.handlers.cancel_handler import handle_cancel_appointment
-from app.handlers.modify_handler import handle_modify_appointment
-from app.handlers.business_info_handler import handle_business_info
 from app.core.orchestrator import run_conversation_turn
 from app.services.rate_limit_async import consume_daily_quota
-from app.utils.conversation_routing import (
-    classify_route,
-    guided_menu,
-    parse_menu_choice,
+from app.services.guided_menu_router import (
+    execute_guided_route,
+    route_guided_message,
 )
+from app.services.idempotency import should_process_channel_event
 from app.core.scheduler import start_scheduler, shutdown_scheduler, scheduler
+
+logger = logging.getLogger(__name__)
 
 # Sentry initialization
 if config.SENTRY_DSN:
@@ -216,58 +213,38 @@ async def whatsapp_webhook(request: Request):
             
         business_id = business_info["id"]
 
+        if not await should_process_channel_event(
+            channel="whatsapp",
+            business_id=business_id,
+            user_key=phone_number,
+            event_id=message_id,
+        ):
+            return {"status": "ok"}
+
+        # 4. Obtener contexto y decidir ruta guiada antes de contar cuota IA.
+        context = await conversation_manager.get_context(business_id, phone_number)
+        decision = route_guided_message(message_text, context)
+
         quota = await consume_daily_quota(
             business_id=business_id,
             user_channel_id=phone_number,
-            is_ai_message=classify_route(message_text) == "ai",
+            is_ai_message=decision.uses_ai,
         )
         if not quota["allowed"]:
             await whatsapp_client.send_text_message(to=phone_number, message=quota["message"])
             return {"status": "ok"}
 
-        # 4. Obtener contexto
-        context = await conversation_manager.get_context(business_id, phone_number)
-
-        menu_choice = parse_menu_choice(message_text)
-        # Prioridad: si hay un flujo activo, no interpretar números como menú global.
-        if context.get("state", "idle") == "idle" and (
-            menu_choice or classify_route(message_text) == "menu"
-        ):
-            if menu_choice == "1":
-                services = await db_service.get_business_services(business_id)
-                if not services:
-                    resp = NO_SERVICES_GENERIC
-                else:
-                    services_text = "\n".join(
-                        [f"  • {s['name']} (${s['price']}, {s['duration_minutes']} min)" for s in services]
-                    )
-                    await conversation_manager.update_context(
-                        business_id,
-                        phone_number,
-                        {"current_intent": "book_appointment", "state": "awaiting_service", "pending_data": {}},
-                    )
-                    resp = f"Perfecto. ¿Qué servicio querés reservar?\n\n{services_text}"
-            elif menu_choice == "2":
-                resp = await handle_check_appointment({}, context)
-            elif menu_choice == "3":
-                await conversation_manager.update_context(
-                    business_id,
-                    phone_number,
-                    {"current_intent": "modify_appointment", "state": "awaiting_appointment_selection_modify"},
-                )
-                resp = "Perfecto. Decime qué cita querés cambiar y te ayudo."
-            elif menu_choice == "4":
-                await conversation_manager.update_context(
-                    business_id,
-                    phone_number,
-                    {"current_intent": "cancel_appointment", "state": "awaiting_appointment_selection"},
-                )
-                resp = "Entendido. Decime cuál cita querés cancelar."
-            elif menu_choice == "5":
-                resp = await handle_business_info(business_id)
-            else:
-                resp = guided_menu(context.get("customer_name") or "")
-
+        resp = await execute_guided_route(business_id, phone_number, decision, context)
+        if resp:
+            logger.info(
+                "wa_route guided_router kind=%s business=%s user=%s",
+                decision.kind,
+                business_id,
+                phone_number,
+            )
+            await conversation_manager.save_message(
+                business_id, phone_number, "user", message_text
+            )
             await whatsapp_client.send_text_message(to=phone_number, message=resp)
             await conversation_manager.save_message(
                 business_id, phone_number, "assistant", resp
@@ -275,7 +252,15 @@ async def whatsapp_webhook(request: Request):
             return {"status": "ok"}
 
         # 6–11. Turno conversacional unificado (orchestrator)
+        logger.info(
+            "wa_route pass_through kind=%s uses_ai=%s business=%s user=%s",
+            decision.kind,
+            decision.uses_ai,
+            business_id,
+            phone_number,
+        )
         response_text = await run_conversation_turn(business_id, phone_number, message_text)
+        logger.info("wa_route ai_pipeline business=%s user=%s", business_id, phone_number)
         await whatsapp_client.send_text_message(to=phone_number, message=response_text)
         return {"status": "ok"}
 

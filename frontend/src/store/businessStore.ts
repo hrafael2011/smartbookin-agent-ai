@@ -53,6 +53,11 @@ export const useBusinessStore = create<BusinessState>()(
       createBusiness: async (data: BusinessFormData) => {
         set({ isLoading: true, error: null })
         try {
+          if (get().businesses.length > 0) {
+            throw new Error(
+              'El MVP permite un negocio por dueño. Multi-negocio estará disponible en planes de pago.'
+            )
+          }
           const created = await businessAPI.create(data)
           const businesses = [...get().businesses, created]
           set({
@@ -63,7 +68,7 @@ export const useBusinessStore = create<BusinessState>()(
           return created
         } catch (error: any) {
           set({
-            error: error.response?.data?.detail || 'Error creando negocio',
+            error: error.response?.data?.detail || error.message || 'Error creando negocio',
             isLoading: false,
           })
           throw error

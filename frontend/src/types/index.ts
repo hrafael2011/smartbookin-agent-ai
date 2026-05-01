@@ -317,6 +317,22 @@ export interface DashboardMetrics {
   upcoming_appointments: Appointment[]
 }
 
+export interface TelegramActivation {
+  deep_link: string
+  invite_token: string
+  bot_username: string
+  has_first_contact: boolean
+}
+
+export interface OwnerTelegramActivation {
+  deep_link: string
+  activation_token: string
+  payload: string
+  bot_username: string
+  has_active_binding: boolean
+  activation_expires_at: string
+}
+
 // ============================================================================
 // API RESPONSE TYPES
 // ============================================================================

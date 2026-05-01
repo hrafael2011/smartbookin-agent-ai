@@ -16,7 +16,9 @@ class TokenData(BaseModel):
 # --- Owner Schemas ---
 class OwnerBase(BaseModel):
     name: str
-    email: EmailStr
+    # str (no EmailStr): dominios de demo tipo .test / .local son rechazados por
+    # email-validator al serializar Owner en /auth/token y rompen el login con 500.
+    email: str
     phone: Optional[str] = None
 
 class OwnerCreate(OwnerBase):
@@ -93,6 +95,15 @@ class TelegramActivationOut(BaseModel):
     invite_token: str
     bot_username: str
     has_first_contact: bool
+
+
+class OwnerTelegramActivationOut(BaseModel):
+    deep_link: str
+    activation_token: str
+    payload: str
+    bot_username: str
+    has_active_binding: bool
+    activation_expires_at: datetime
 
 # --- Schedule Schemas ---
 class ScheduleRuleBase(BaseModel):

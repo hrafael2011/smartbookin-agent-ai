@@ -1,8 +1,8 @@
 """
 Handler para el intent book_appointment
 """
+import logging
 import re
-from datetime import datetime, timedelta
 from typing import Dict, List
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
@@ -14,6 +14,8 @@ from app.utils.time_parser import (
     slot_hhmm,
     sort_slots_by_requested_time,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _slots_short_list(slots: List[Dict], limit: int = 3) -> str:
@@ -613,6 +615,15 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
         )
         still_free = pick_exact_slot(fresh.get("available_slots", []), requested_hhmm)
         if not still_free:
+            logger.info(
+                "booking_confirmation_slot_unavailable business=%s user=%s customer=%s service=%s date=%s slot=%s",
+                business_id,
+                phone_number,
+                customer_id,
+                service_id,
+                pending_data.get("date"),
+                requested_hhmm,
+            )
             await conversation_manager.update_context(
                 business_id,
                 phone_number,
@@ -639,7 +650,16 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
             "end_at": selected_slot["end_datetime"],
             "created_via": "telegram",
         }
-        await db_service.create_appointment(appointment_data)
+        appointment = await db_service.create_appointment(appointment_data)
+        logger.info(
+            "booking_confirmed business=%s user=%s customer=%s service=%s appointment=%s slot=%s",
+            business_id,
+            phone_number,
+            customer_id,
+            service_id,
+            appointment.get("id") if isinstance(appointment, dict) else None,
+            requested_hhmm,
+        )
         await conversation_manager.clear_pending_data(business_id, phone_number)
 
         business = await db_service.get_business(business_id)

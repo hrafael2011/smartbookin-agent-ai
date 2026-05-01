@@ -24,7 +24,9 @@ import type {
   AvailabilityParams,
   WaitlistEntry,
   DashboardMetrics,
+  OwnerTelegramActivation,
   PaginatedResponse,
+  TelegramActivation,
   TimeBlock,
   TimeBlockFormData,
 } from '@/types'
@@ -32,7 +34,7 @@ import type {
 const API_BASE_URL =
   (import.meta.env?.VITE_API_URL as string | undefined) ||
   (import.meta.env?.VITE_API_BASE_URL as string | undefined) ||
-  'http://localhost:8000/api'
+  '/api'
 
 /** Cliente sin interceptores (refresh token) */
 const apiPublic = axios.create({
@@ -853,13 +855,6 @@ export const dashboardAPI = {
   },
 }
 
-export type TelegramActivation = {
-  deep_link: string
-  invite_token: string
-  bot_username: string
-  has_first_contact: boolean
-}
-
 export const telegramAPI = {
   getActivation: async (businessId: number): Promise<TelegramActivation> => {
     const response = await api.get<TelegramActivation>(
@@ -870,6 +865,15 @@ export const telegramAPI = {
   rotateInvite: async (businessId: number): Promise<TelegramActivation> => {
     const response = await api.post<TelegramActivation>(
       '/businesses/' + businessId + '/telegram/rotate-invite'
+    )
+    return response.data
+  },
+}
+
+export const ownerTelegramAPI = {
+  getActivation: async (businessId: number): Promise<OwnerTelegramActivation> => {
+    const response = await api.get<OwnerTelegramActivation>(
+      '/businesses/' + businessId + '/owner-telegram'
     )
     return response.data
   },

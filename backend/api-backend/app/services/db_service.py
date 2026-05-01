@@ -65,7 +65,13 @@ async def get_business(business_id: int) -> Dict:
         business = result.scalars().first()
         if not business:
             return {}
-        return {"id": business.id, "name": business.name, "address": business.address, "description": business.description}
+        return {
+            "id": business.id,
+            "name": business.name,
+            "address": business.address,
+            "description": business.description,
+            "timezone": business.timezone or "America/Santo_Domingo",
+        }
 
 async def get_business_by_phone_id(phone_id: str) -> Dict:
     async with AsyncSessionLocal() as db:
@@ -324,3 +330,95 @@ async def get_business_schedule(business_id: int) -> List[Dict]:
                 }
             )
         return schedule
+
+
+async def get_appointment_for_owner(appointment_id: int, business_id: int) -> Optional[Dict]:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Appointment).filter(
+                Appointment.id == appointment_id,
+                Appointment.business_id == business_id,
+            )
+        )
+        appt = result.scalars().first()
+        if not appt:
+            return None
+        return {"id": appt.id, "status": appt.status or "P", "business_id": appt.business_id}
+
+
+async def mark_appointment_done(appointment_id: int, business_id: int) -> bool:
+    """Mark appointment as completed (D). Only valid from P or C status."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Appointment).filter(
+                Appointment.id == appointment_id,
+                Appointment.business_id == business_id,
+            )
+        )
+        appt = result.scalars().first()
+        if not appt or appt.status not in ("P", "C"):
+            return False
+        appt.status = "D"
+        await db.commit()
+        return True
+
+
+async def get_active_appointments_in_window(
+    business_id: int, start_utc: datetime, end_utc: datetime
+) -> List[Dict]:
+    """Return active appointments (P/C) that overlap with [start_utc, end_utc)."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Appointment, Customer, Service)
+            .join(Customer, Appointment.customer_id == Customer.id, isouter=True)
+            .join(Service, Appointment.service_id == Service.id, isouter=True)
+            .filter(
+                Appointment.business_id == business_id,
+                Appointment.status.in_(["P", "C"]),
+                Appointment.date >= start_utc,
+                Appointment.date < end_utc,
+            )
+            .order_by(Appointment.date.asc())
+        )
+        rows = result.all()
+        out = []
+        for appt, customer, service in rows:
+            out.append(
+                {
+                    "id": appt.id,
+                    "date": appt.date.isoformat(),
+                    "customer_name": customer.name if customer and customer.name else "Cliente",
+                    "service_name": service.name if service else "Servicio",
+                }
+            )
+        return out
+
+
+async def create_time_block(
+    business_id: int, start_at: datetime, end_at: datetime, reason: str = ""
+) -> Dict:
+    async with AsyncSessionLocal() as db:
+        block = TimeBlock(
+            business_id=business_id,
+            start_at=start_at,
+            end_at=end_at,
+            reason=reason or None,
+        )
+        db.add(block)
+        await db.commit()
+        await db.refresh(block)
+        return {"id": block.id, "start_at": block.start_at.isoformat(), "end_at": block.end_at.isoformat()}
+
+
+async def toggle_business_notifications(business_id: int, owner_id: int) -> Optional[bool]:
+    """Toggle daily_notification_enabled. Returns new value or None if not found/unauthorized."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Business).filter(Business.id == business_id, Business.owner_id == owner_id)
+        )
+        business = result.scalars().first()
+        if not business:
+            return None
+        business.daily_notification_enabled = not business.daily_notification_enabled
+        await db.commit()
+        return business.daily_notification_enabled

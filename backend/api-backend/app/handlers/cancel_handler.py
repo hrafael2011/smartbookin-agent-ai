@@ -1,6 +1,7 @@
 """
 Handler para el intent cancel_appointment
 """
+import logging
 import re
 from datetime import datetime
 from typing import Dict
@@ -12,6 +13,8 @@ from app.utils.conversation_routing import (
     is_negative_reply,
     parse_menu_choice,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _wants_menu(text: str) -> bool:
@@ -136,6 +139,13 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                     await db_service.cancel_appointment(
                         appointment_id=appt["id"],
                         notes="Cancelado por el cliente vía WhatsApp",
+                    )
+                    logger.info(
+                        "appointment_cancelled business=%s user=%s customer=%s appointment=%s",
+                        business_id,
+                        phone_number,
+                        customer_id,
+                        appt["id"],
                     )
 
                     await conversation_manager.clear_pending_data(business_id, phone_number)
