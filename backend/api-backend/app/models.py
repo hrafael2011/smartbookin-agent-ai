@@ -193,6 +193,7 @@ class Service(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     duration_minutes = Column(Integer, nullable=False)
+    buffer_minutes = Column(Integer, nullable=False, default=0)
     price = Column(Float, nullable=False, default=0.0)
     is_active = Column(Boolean, default=True)
 
@@ -216,6 +217,9 @@ class Customer(Base):
 
 class Appointment(Base):
     __tablename__ = "appointments"
+    __table_args__ = (
+        UniqueConstraint("service_id", "date", name="uq_appointment_service_datetime"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     date = Column(DateTime(timezone=True), nullable=False)

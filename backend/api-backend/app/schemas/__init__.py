@@ -178,6 +178,7 @@ class ServiceBase(BaseModel):
     name: str
     description: Optional[str] = None
     duration_minutes: int
+    buffer_minutes: int = 0
     price: float = 0.0
     is_active: bool = True
 

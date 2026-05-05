@@ -75,6 +75,7 @@ type RawService = {
   name: string
   description?: string | null
   duration_minutes: number
+  buffer_minutes?: number
   price: number | string
   is_active?: boolean
 }
@@ -167,6 +168,7 @@ const mapService = (raw: RawService): Service => ({
   name: raw.name,
   description: raw.description || undefined,
   duration_minutes: raw.duration_minutes,
+  buffer_minutes: raw.buffer_minutes ?? 0,
   price: String(raw.price ?? 0),
   is_active: raw.is_active ?? true,
   created_at: nowIso(),
@@ -502,6 +504,7 @@ export const servicesAPI = {
         name: data.name,
         description: data.description,
         duration_minutes: Number(data.duration_minutes),
+        buffer_minutes: Number(data.buffer_minutes ?? 0),
         price: Number(data.price),
         is_active: data.is_active,
       }
@@ -519,6 +522,8 @@ export const servicesAPI = {
       '/businesses/' + businessId + '/services/' + id,
       {
         ...data,
+        duration_minutes: data.duration_minutes !== undefined ? Number(data.duration_minutes) : undefined,
+        buffer_minutes: data.buffer_minutes !== undefined ? Number(data.buffer_minutes) : undefined,
         price: data.price !== undefined ? Number(data.price) : undefined,
       }
     )

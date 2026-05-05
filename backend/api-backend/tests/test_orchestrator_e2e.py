@@ -86,8 +86,12 @@ async def test_orchestrator_confirmation_shortcut_skips_nlu(monkeypatch):
     async def passthrough_coherent(bid, uk, ctx):
         return ctx
 
+    async def noop_update(*_a, **_k):
+        return None
+
     monkeypatch.setattr(orch.conversation_manager, "save_message", save_msg)
     monkeypatch.setattr(orch.conversation_manager, "get_context", get_ctx)
+    monkeypatch.setattr(orch.conversation_manager, "update_context", noop_update)
     monkeypatch.setattr(orch, "ensure_coherent_context", passthrough_coherent)
     monkeypatch.setattr(orch.nlu_engine, "process", fake_nlu_process)
     monkeypatch.setattr(orch, "try_booking_flow_synthetic_nlu", lambda **kw: None)
@@ -146,8 +150,12 @@ async def test_orchestrator_slot_selection_prefers_slot_handler_over_spurious_ti
     async def passthrough_coherent(bid, uk, ctx):
         return ctx
 
+    async def noop_update(*_a, **_k):
+        return None
+
     monkeypatch.setattr(orch.conversation_manager, "save_message", save_msg)
     monkeypatch.setattr(orch.conversation_manager, "get_context", get_ctx)
+    monkeypatch.setattr(orch.conversation_manager, "update_context", noop_update)
     monkeypatch.setattr(orch, "ensure_coherent_context", passthrough_coherent)
     monkeypatch.setattr(orch, "build_customer_context_for_nlu", fake_build_customer_context)
     monkeypatch.setattr(orch.nlu_engine, "process", fake_nlu_process)

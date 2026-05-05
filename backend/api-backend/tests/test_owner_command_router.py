@@ -293,7 +293,8 @@ async def test_execute_owner_route_back_from_detail_returns_previous_agenda(monk
 
 
 @pytest.mark.asyncio
-async def test_telegram_bound_owner_routes_before_customer_binding(monkeypatch):
+async def test_telegram_owner_without_customer_binding_routes_to_owner_panel(monkeypatch):
+    """Owner with NO customer binding → owner panel runs (customer check is skipped)."""
     sent = []
 
     monkeypatch.setattr(
@@ -305,8 +306,8 @@ async def test_telegram_bound_owner_routes_before_customer_binding(monkeypatch):
     async def fake_owner_binding(_telegram_user_id):
         return {"business_id": 3, "business_name": "Demo", "owner_id": 7}
 
-    async def fail_customer_binding(_telegram_user_id):
-        raise AssertionError("owner messages must not use customer binding")
+    async def no_customer_binding(_telegram_user_id):
+        return None  # no customer binding → owner routing runs
 
     async def fake_should_process(*_args, **_kwargs):
         return True
@@ -325,7 +326,7 @@ async def test_telegram_bound_owner_routes_before_customer_binding(monkeypatch):
         return {"ok": True}
 
     monkeypatch.setattr(telegram_inbound, "get_owner_binding_by_telegram_user_id", fake_owner_binding)
-    monkeypatch.setattr(telegram_inbound, "get_binding_business_id", fail_customer_binding)
+    monkeypatch.setattr(telegram_inbound, "get_binding_business_id", no_customer_binding)
     monkeypatch.setattr(telegram_inbound, "should_process_channel_event", fake_should_process)
     monkeypatch.setattr(telegram_inbound.conversation_manager, "get_context", fake_get_context)
     monkeypatch.setattr(telegram_inbound.conversation_manager, "update_context", fake_update_context)
@@ -341,6 +342,67 @@ async def test_telegram_bound_owner_routes_before_customer_binding(monkeypatch):
     assert resp.get("status") == "ok"
     assert "Panel rápido" in sent[-1]
     assert "Agenda de hoy" in sent[-1]
+
+
+@pytest.mark.asyncio
+async def test_telegram_dual_bound_user_routes_to_customer_not_owner(monkeypatch):
+    """User with BOTH customer and owner bindings → customer routing takes priority."""
+    sent = []
+
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "extract_message_from_webhook",
+        lambda _payload: {"from": "123", "text": "menu", "message_id": "m-dual-1"},
+    )
+
+    async def fake_owner_binding(_telegram_user_id):
+        return {"business_id": 3, "business_name": "Demo", "owner_id": 7}
+
+    async def fake_customer_binding(_telegram_user_id):
+        return 3  # has customer binding → customer routing takes priority
+
+    async def fail_owner_binding_check(_telegram_user_id):
+        raise AssertionError("dual-bound user must not reach owner routing")
+
+    async def fake_should_process(*_args, **_kwargs):
+        return True
+
+    async def fake_get_context(*_args, **_kwargs):
+        return {"state": "idle", "customer_name": "Hendrick", "last_activity": datetime.now(timezone.utc).isoformat()}
+
+    async def fake_update_context(*_args, **_kwargs):
+        return None
+
+    async def fake_save_message(*_args, **_kwargs):
+        return None
+
+    async def fake_send_text_message(*_args, **kwargs):
+        sent.append(kwargs.get("message") or "")
+        return {"ok": True}
+
+    from app.services.guided_menu_router import RouteDecision
+
+    async def fake_execute_guided(*_args, **_kwargs):
+        return "Menú de cliente"
+
+    monkeypatch.setattr(telegram_inbound, "get_binding_business_id", fake_customer_binding)
+    # owner binding check should NOT be reached
+    monkeypatch.setattr(telegram_inbound, "get_owner_binding_by_telegram_user_id", fail_owner_binding_check)
+    monkeypatch.setattr(telegram_inbound, "should_process_channel_event", fake_should_process)
+    monkeypatch.setattr(telegram_inbound.conversation_manager, "get_context", fake_get_context)
+    monkeypatch.setattr(telegram_inbound.conversation_manager, "update_context", fake_update_context)
+    monkeypatch.setattr(telegram_inbound.conversation_manager, "save_message", fake_save_message)
+    monkeypatch.setattr(telegram_inbound.telegram_client, "send_text_message", fake_send_text_message)
+    monkeypatch.setattr("app.services.telegram_inbound.execute_guided_route", fake_execute_guided)
+    monkeypatch.setattr(
+        "app.services.telegram_inbound.route_guided_message",
+        lambda *_a, **_k: RouteDecision("show_menu", reason="menu_command"),
+    )
+
+    resp = await telegram_inbound.process_telegram_update({})
+
+    assert resp.get("status") == "ok"
+    assert "Menú de cliente" in sent[-1]
 
 
 @pytest.mark.asyncio

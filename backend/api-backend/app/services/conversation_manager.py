@@ -28,6 +28,8 @@ class ConversationManager:
             "current_intent": None,
             "pending_data": {},
             "state": "idle",
+            "state_stack": [],
+            "attempts": {},
             "last_activity": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -153,12 +155,38 @@ class ConversationManager:
         self, business_id: int, phone_number: str, update_data: Dict
     ):
         """
-        Actualiza datos del contexto sin agregar mensaje
+        Actualiza datos del contexto sin agregar mensaje.
+        Auto-pushes previous state onto state_stack on transitions (unless caller
+        explicitly includes state_stack in update_data).
         """
         context = await self.get_context(business_id, phone_number)
+
+        new_state = update_data.get("state")
+        current_state = context.get("state") or "idle"
+        if new_state and new_state != current_state and "state_stack" not in update_data:
+            if new_state == "idle":
+                context["state_stack"] = []
+            elif current_state != "idle":
+                stack = list(context.get("state_stack") or [])
+                stack.append(current_state)
+                if len(stack) > 10:
+                    stack = stack[-10:]
+                context["state_stack"] = stack
+
         context.update(update_data)
         context["last_activity"] = datetime.now(timezone.utc).isoformat()
 
+        await self.save_context(business_id, phone_number, context)
+
+    async def push_state(self, business_id: int, phone_number: str, state: str) -> None:
+        """Push a state string onto state_stack (max 10 elements, oldest dropped)."""
+        context = await self.get_context(business_id, phone_number)
+        stack = list(context.get("state_stack") or [])
+        stack.append(state)
+        if len(stack) > 10:
+            stack = stack[-10:]
+        context["state_stack"] = stack
+        context["last_activity"] = datetime.now(timezone.utc).isoformat()
         await self.save_context(business_id, phone_number, context)
 
     async def clear_pending_data(self, business_id: int, phone_number: str):

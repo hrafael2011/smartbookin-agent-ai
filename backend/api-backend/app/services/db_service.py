@@ -57,7 +57,16 @@ async def get_business_services(business_id: int) -> List[Dict]:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Service).filter(Service.business_id == business_id, Service.is_active == True))
         services = result.scalars().all()
-        return [{"id": s.id, "name": s.name, "price": s.price, "duration_minutes": s.duration_minutes} for s in services]
+        return [
+            {
+                "id": s.id,
+                "name": s.name,
+                "price": s.price,
+                "duration_minutes": s.duration_minutes,
+                "buffer_minutes": getattr(s, "buffer_minutes", 0) or 0,
+            }
+            for s in services
+        ]
 
 async def get_business(business_id: int) -> Dict:
     async with AsyncSessionLocal() as db:
@@ -176,7 +185,7 @@ async def get_availability(business_id: int, service_id: int, date: str, preferr
         blocked_datetime_ranges = []
 
         result = await db.execute(
-            select(Appointment, Service.duration_minutes)
+            select(Appointment, Service.duration_minutes, Service.buffer_minutes)
             .join(Service, Appointment.service_id == Service.id)
             .filter(
                 Appointment.business_id == business_id,
@@ -185,9 +194,11 @@ async def get_availability(business_id: int, service_id: int, date: str, preferr
                 Appointment.date <= day_end,
             )
         )
-        for appointment, duration_minutes in result.all():
+        for appointment, duration_minutes, buffer_minutes in result.all():
             start_at = _as_utc(appointment.date)
-            end_at = start_at + timedelta(minutes=int(duration_minutes))
+            end_at = start_at + timedelta(
+                minutes=int(duration_minutes) + int(buffer_minutes or 0)
+            )
             blocked_datetime_ranges.append((start_at, end_at))
 
         result = await db.execute(
@@ -207,24 +218,88 @@ async def get_availability(business_id: int, service_id: int, date: str, preferr
             open_ranges=open_datetime_ranges,
             blocked_ranges=blocked_datetime_ranges,
             duration_minutes=service.duration_minutes,
+            buffer_minutes=getattr(service, "buffer_minutes", 0) or 0,
             preferred_time=preferred_time,
         )
         return {"available_slots": slots}
 
+async def get_next_available_days(
+    business_id: int,
+    service_id: int,
+    from_date: date_type,
+    limit: int = 3,
+    max_days: int = 14,
+) -> List[Dict]:
+    """Return up to `limit` days (from `from_date` inclusive) that have available slots."""
+    results: List[Dict] = []
+    current = from_date
+    for _ in range(max_days):
+        if len(results) >= limit:
+            break
+        avail = await get_availability(
+            business_id=business_id,
+            service_id=service_id,
+            date=current.strftime("%Y-%m-%d"),
+        )
+        if avail.get("available_slots"):
+            results.append({"date": current.strftime("%Y-%m-%d")})
+        current += timedelta(days=1)
+    return results
+
+
+async def get_available_days_in_range(
+    business_id: int,
+    service_id: int,
+    start_date: date_type,
+    end_date: date_type,
+) -> List[Dict]:
+    """Return days in [start_date, end_date] with at least one available slot."""
+    from app.utils.date_parse import format_date_human_es
+
+    results: List[Dict] = []
+    current = start_date
+    while current <= end_date:
+        iso = current.strftime("%Y-%m-%d")
+        availability = await get_availability(
+            business_id=business_id,
+            service_id=service_id,
+            date=iso,
+        )
+        slots = availability.get("available_slots", [])
+        if slots:
+            label = format_date_human_es(iso)
+            label_short = " ".join(label.split()[:2])
+            results.append(
+                {
+                    "date": iso,
+                    "slot_count": len(slots),
+                    "label": label_short,
+                }
+            )
+        current += timedelta(days=1)
+    return results
+
+
 async def create_appointment(appointment_data: Dict) -> Dict:
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy import text as sa_text
+
     async with AsyncSessionLocal() as db:
-        start_at = datetime.fromisoformat(appointment_data["start_at"].replace('Z', '+00:00'))
-        
+        await db.execute(sa_text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+        start_at = datetime.fromisoformat(appointment_data["start_at"].replace("Z", "+00:00"))
         appointment = Appointment(
             business_id=appointment_data["business"],
             customer_id=appointment_data["customer"],
             service_id=appointment_data["service"],
             date=start_at,
-            status="C"
+            status="C",
         )
         db.add(appointment)
-        await db.commit()
-        
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            return {"error": "slot_conflict"}
         return {"id": appointment.id}
 
 async def get_customer_appointments(customer_id: int, upcoming: bool = False) -> List[Dict]:

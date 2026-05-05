@@ -749,7 +749,8 @@ async def test_block_past_date_rejected(monkeypatch):
     _patch_ctx(monkeypatch)
 
     from datetime import date, timedelta
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    # Use 2 days ago to stay unambiguously in the past regardless of UTC vs local offset.
+    yesterday = (date.today() - timedelta(days=2)).isoformat()
 
     with patch("app.utils.date_parse.resolve_date_from_spanish_text", return_value=yesterday):
         response = await execute_owner_route(

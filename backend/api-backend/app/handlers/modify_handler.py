@@ -6,8 +6,10 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from app.handlers.booking_handler import _paginate_slots, _slots_short_list
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
+from app.utils.conversation_routing import guided_menu
 from app.utils.date_parse import format_date_human_es
 from app.utils.time_parser import parse_time_candidates, pick_exact_slot, sort_slots_by_requested_time
 
@@ -319,12 +321,14 @@ async def handle_modify_appointment(nlu_result: Dict, context: Dict) -> str:
                         "pending_data": {
                             **pending_data,
                             "available_slots": offer,
+                            "slot_page": 0,
                         },
                     },
                 )
 
+                page_info = _paginate_slots(offer, page=0)
                 return (
-                    f"{header}{_slots_modify_list(offer, limit=8)}\n\n"
+                    f"{header}{_slots_short_list(page_info)}\n\n"
                     "¿Cuál preferís? Respondé con el número o la hora exacta."
                 )
 
@@ -340,12 +344,41 @@ async def handle_modify_appointment(nlu_result: Dict, context: Dict) -> str:
 
         raw_user = (nlu_result.get("_raw_user_text") or "").strip()
         time_ent = str((entities or {}).get("time") or "")
-        selected_slot = _select_modify_slot(available_slots, raw_user, time_ent)
+
+        # T029: intercept page navigation keys before slot resolution
+        current_page = int(pending_data.get("slot_page") or 0)
+        page_info = _paginate_slots(available_slots, page=current_page)
+
+        if raw_user == "8" and page_info["has_next"]:
+            new_page = current_page + 1
+            new_page_info = _paginate_slots(available_slots, page=new_page)
+            await conversation_manager.update_context(
+                business_id, phone_number, {"pending_data": {**pending_data, "slot_page": new_page}}
+            )
+            return (
+                f"Página {new_page + 1}:\n\n"
+                f"{_slots_short_list(new_page_info)}\n\n"
+                "¿Cuál preferís?"
+            )
+        if raw_user == "7" and page_info["has_prev"]:
+            new_page = current_page - 1
+            new_page_info = _paginate_slots(available_slots, page=new_page)
+            await conversation_manager.update_context(
+                business_id, phone_number, {"pending_data": {**pending_data, "slot_page": new_page}}
+            )
+            return (
+                f"Página {new_page + 1}:\n\n"
+                f"{_slots_short_list(new_page_info)}\n\n"
+                "¿Cuál preferís?"
+            )
+
+        page_slots = page_info["slots"]
+        selected_slot = _select_modify_slot(page_slots, raw_user, time_ent)
 
         if not selected_slot:
             return (
                 "No entendí cuál horario elegiste.\n\n"
-                f"Estas siguen siendo las opciones:\n{_slots_modify_list(available_slots, limit=8)}\n\n"
+                f"Estas siguen siendo las opciones:\n{_slots_short_list(page_info)}\n\n"
                 "Respondé con el número o la hora exacta."
             )
 
@@ -377,15 +410,13 @@ async def handle_modify_appointment(nlu_result: Dict, context: Dict) -> str:
                 if isinstance(new_date, str) and len(str(new_date)) == 10
                 else str(new_date)
             )
-            return f"""✅ ¡Listo! Tu cita se reagendó exitosamente
-
-📅 Nueva fecha: {date_out}
-⏰ Nueva hora: {selected_slot['start_time']}
-✂️ {service_name}
-
-Te enviaré nuevos recordatorios 😊
-
-¿Necesitas algo más?"""
+            return (
+                "✅ ¡Listo! Tu cita se reagendó exitosamente\n\n"
+                f"📅 Nueva fecha: {date_out}\n"
+                f"⏰ Nueva hora: {selected_slot['start_time']}\n"
+                f"✂️ {service_name}\n\n"
+                f"{guided_menu(customer_name)}"
+            )
 
         except Exception as e:
             await conversation_manager.clear_pending_data(business_id, phone_number)

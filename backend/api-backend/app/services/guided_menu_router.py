@@ -78,8 +78,23 @@ def _is_abusive(text: str) -> bool:
         "maldito",
         "mierda",
         "vete al diablo",
+        "vete a la",
+        "pendejo",
+        "cabrón",
+        "cabron",
+        "mamaguevo",
+        "malparido",
+        "singao",
+        "coño tu",
+        "tu madre",
+        "cono tu",
+        "inutil",
+        "inútil",
+        "basura de bot",
         "fuck",
         "shit",
+        "asshole",
+        "bastard",
     )
     return any(term in t for term in abusive_terms)
 
@@ -100,6 +115,31 @@ def _is_out_of_domain(text: str) -> bool:
         "programame",
         "hazme una app",
         "receta de cocina",
+        "chiste",
+        "cuéntame un chiste",
+        "cuentame un chiste",
+        "qué hora es",
+        "que hora es",
+        "el tiempo",
+        "clima",
+        "pronóstico",
+        "pronostico",
+        "lotería",
+        "loteria",
+        "futbol",
+        "fútbol",
+        "partido",
+        "noticias",
+        "filosofia",
+        "filosofía",
+        "poema",
+        "tradúceme",
+        "traduceme",
+        "matematica",
+        "matemática",
+        "historia de",
+        "quién inventó",
+        "quien invento",
     )
     domain_terms = (
         "cita",
@@ -280,7 +320,18 @@ async def execute_guided_route(
         return guided_menu(customer_name)
 
     if decision.kind == "go_back":
-        # Phase 1 fallback: no reliable navigation stack yet.
+        stack = list(context.get("state_stack") or [])
+        if stack:
+            prev_state = stack.pop()
+            await conversation_manager.update_context(
+                business_id,
+                user_key,
+                {
+                    "state": prev_state,
+                    "state_stack": stack,
+                },
+            )
+            return "Volvemos al paso anterior.\n\n9) Volver\n0) Menú principal\nX) Salir"
         await _clear_to_idle(business_id, user_key)
         return guided_menu(customer_name)
 
@@ -289,6 +340,19 @@ async def execute_guided_route(
         return 'Listo, cerré esta consulta. Cuando necesités algo, escribí "menu".'
 
     if decision.kind == "expired_flow":
+        pending_data = context.get("pending_data") or {}
+        if pending_data:
+            await conversation_manager.update_context(
+                business_id,
+                user_key,
+                {
+                    "state": "awaiting_session_resume",
+                    "resume_data": pending_data,
+                    "resume_intent": context.get("current_intent"),
+                    "resume_state": context.get("state"),
+                },
+            )
+            return "Tenías una consulta a medias. ¿Continuamos donde estabas?\n\nsí / no"
         await _clear_to_idle(business_id, user_key)
         return _with_menu("Cerré la consulta anterior por inactividad. Te dejo el menú principal:", customer_name)
 
@@ -297,13 +361,13 @@ async def execute_guided_route(
 
     if decision.kind == "out_of_domain":
         return _with_menu(
-            "Por ahora puedo ayudarte con citas, servicios, horarios y ubicación del negocio. Elegí una opción:",
+            "Este asistente gestiona citas del negocio. Para otras consultas, contactá directamente al local.",
             customer_name,
         )
 
     if decision.kind == "abusive":
         return _with_menu(
-            "Estoy aquí para ayudarte con citas del negocio. Si querés continuar, elegí una opción:",
+            "Por favor mantengamos un trato cordial. Estoy aquí para ayudarte con tus citas.",
             customer_name,
         )
 

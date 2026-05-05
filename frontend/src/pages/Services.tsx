@@ -19,6 +19,7 @@ export function Services() {
     name: '',
     description: '',
     duration_minutes: 30,
+    buffer_minutes: 0,
     price: 0,
     is_active: true,
   });
@@ -46,6 +47,7 @@ export function Services() {
         name: service.name,
         description: service.description || '',
         duration_minutes: service.duration_minutes,
+        buffer_minutes: service.buffer_minutes || 0,
         price: service.price,
         is_active: service.is_active,
       });
@@ -55,6 +57,7 @@ export function Services() {
         name: '',
         description: '',
         duration_minutes: 30,
+        buffer_minutes: 0,
         price: 0,
         is_active: true,
       });
@@ -78,6 +81,14 @@ export function Services() {
       }
       if (Number(formData.duration_minutes) <= 0) {
         toast.error('La duración debe ser mayor a cero');
+        return;
+      }
+      if (Number(formData.buffer_minutes) < 0 || Number(formData.buffer_minutes) > 120) {
+        toast.error('El tiempo de preparación debe estar entre 0 y 120 minutos');
+        return;
+      }
+      if (Number(formData.duration_minutes) + Number(formData.buffer_minutes) > 480) {
+        toast.error('La duración total no puede superar 480 minutos');
         return;
       }
       if (Number(formData.price) < 0) {
@@ -194,7 +205,14 @@ export function Services() {
                       <TableRow key={service.id}>
                         <TableCell className="font-medium">{service.name}</TableCell>
                         <TableCell className="text-muted-foreground">{service.description || '-'}</TableCell>
-                        <TableCell>{service.duration_minutes} min</TableCell>
+                        <TableCell>
+                          {service.duration_minutes} min
+                          {service.buffer_minutes > 0 && (
+                            <span className="block text-xs text-muted-foreground">
+                              + {service.buffer_minutes} min buffer
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>{formatCurrency(service.price)}</TableCell>
                         <TableCell>
                           <Badge variant={service.is_active ? 'success' : 'default'}>
@@ -284,7 +302,14 @@ export function Services() {
                   <div className="grid grid-cols-2 gap-4 py-3 border-y border-border/40">
                     <div>
                       <div className="text-xs text-muted-foreground uppercase font-semibold">Duración</div>
-                      <div className="text-sm font-medium">{service.duration_minutes} min</div>
+                      <div className="text-sm font-medium">
+                        {service.duration_minutes} min
+                        {service.buffer_minutes > 0 && (
+                          <span className="block text-xs text-muted-foreground">
+                            + {service.buffer_minutes} min buffer
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="text-right">
                       <div className="text-xs text-muted-foreground uppercase font-semibold">Precio</div>
@@ -355,6 +380,15 @@ export function Services() {
               required
             />
             <Input
+              label="Tiempo de preparación (min)"
+              type="number"
+              min="0"
+              max="120"
+              step="5"
+              value={formData.buffer_minutes}
+              onChange={(e) => setFormData({ ...formData, buffer_minutes: Number(e.target.value) })}
+            />
+            <Input
               label="Precio (RD$)"
               type="number"
               min="0"
@@ -364,6 +398,9 @@ export function Services() {
               required
             />
           </div>
+          <p className="text-xs text-muted-foreground">
+            Tiempo de limpieza entre citas.
+          </p>
           <div className="flex items-center gap-2">
             <input
               type="checkbox"

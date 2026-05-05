@@ -144,6 +144,7 @@ def build_slots(
     open_ranges: Sequence[DateTimeRange],
     blocked_ranges: Sequence[DateTimeRange],
     duration_minutes: int,
+    buffer_minutes: int = 0,
     preferred_time: Optional[str] = None,
     step_minutes: int = TIME_STEP_MINUTES,
 ) -> list[dict]:
@@ -152,16 +153,18 @@ def build_slots(
 
     preferred_hours = _extract_hour_candidates(preferred_time)
     duration_delta = timedelta(minutes=duration_minutes)
+    slot_block_delta = timedelta(minutes=duration_minutes + max(0, int(buffer_minutes or 0)))
     step_delta = timedelta(minutes=step_minutes)
 
     slots: list[dict] = []
     for range_start, range_end in open_ranges:
         cursor = range_start
-        while cursor + duration_delta <= range_end:
-            end_cursor = cursor + duration_delta
+        while cursor + slot_block_delta <= range_end:
+            display_end_cursor = cursor + duration_delta
+            block_end_cursor = cursor + slot_block_delta
 
             is_conflicting = any(
-                datetime_ranges_overlap(cursor, end_cursor, blocked_start, blocked_end)
+                datetime_ranges_overlap(cursor, block_end_cursor, blocked_start, blocked_end)
                 for blocked_start, blocked_end in blocked_ranges
             )
             if not is_conflicting:
@@ -169,7 +172,7 @@ def build_slots(
                     {
                         "start_time": cursor.strftime("%I:%M %p").lstrip("0"),
                         "start_datetime": cursor.isoformat(),
-                        "end_datetime": end_cursor.isoformat(),
+                        "end_datetime": display_end_cursor.isoformat(),
                         "is_preferred": cursor.hour in preferred_hours if preferred_hours else False,
                     }
                 )

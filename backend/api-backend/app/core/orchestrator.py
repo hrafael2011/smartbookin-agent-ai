@@ -15,6 +15,13 @@ from app.handlers.booking_handler import (
     handle_booking_confirmation,
     handle_slot_selection,
 )
+from app.handlers.booking_calendar_handler import (
+    handle_booking_current_week,
+    handle_booking_day,
+    handle_booking_month,
+    handle_booking_week,
+    selected_calendar_day,
+)
 from app.handlers.business_info_handler import handle_business_info, handle_business_services
 from app.handlers.cancel_handler import handle_cancel_appointment
 from app.handlers.check_handler import handle_check_appointment
@@ -149,6 +156,48 @@ def _match_idle_capability_route(message_text: str) -> str | None:
     return None
 
 
+CALENDAR_BOOKING_STATES = {
+    State.BOOKING_CURRENT_WEEK.value,
+    State.BOOKING_MONTH.value,
+    State.BOOKING_WEEK.value,
+    State.BOOKING_DAY.value,
+}
+
+
+async def _calendar_main_menu(business_id: int, user_key: str, customer_name: str) -> str:
+    await conversation_manager.update_context(
+        business_id,
+        user_key,
+        {
+            "current_intent": None,
+            "state": State.IDLE.value,
+            "pending_data": {},
+            "state_stack": [],
+        },
+    )
+    return guided_menu(customer_name)
+
+
+async def _calendar_back(business_id: int, user_key: str, context: Dict[str, Any]) -> str:
+    stack = list(context.get("state_stack") or [])
+    if not stack:
+        return await _calendar_main_menu(
+            business_id,
+            user_key,
+            context.get("customer_name") or "",
+        )
+    prev_state = stack.pop()
+    await conversation_manager.update_context(
+        business_id,
+        user_key,
+        {
+            "state": prev_state,
+            "state_stack": stack,
+        },
+    )
+    return "Volvemos al paso anterior.\n\n9) Volver\n0) Menú principal\nX) Salir"
+
+
 async def run_conversation_turn(
     business_id: int,
     user_key: str,
@@ -164,6 +213,42 @@ async def run_conversation_turn(
     customer_id = context.get("customer_id")
     current_state = context.get("state", State.IDLE.value)
     current_intent = context.get("current_intent")
+
+    if current_state == State.AWAITING_SESSION_RESUME.value:
+        t = (message_text or "").strip().lower()
+        if t in ("sí", "si", "yes", "claro", "dale", "ok"):
+            resume_data = context.get("resume_data") or {}
+            resume_intent = context.get("resume_intent")
+            resume_state = context.get("resume_state") or State.IDLE.value
+            await conversation_manager.update_context(
+                business_id,
+                user_key,
+                {
+                    "state": resume_state,
+                    "current_intent": resume_intent,
+                    "pending_data": resume_data,
+                    "resume_data": None,
+                    "resume_intent": None,
+                    "resume_state": None,
+                },
+            )
+            response_text = "Listo, continuamos. Te retomo desde donde estabas."
+        else:
+            await conversation_manager.update_context(
+                business_id,
+                user_key,
+                {
+                    "state": State.IDLE.value,
+                    "current_intent": None,
+                    "pending_data": {},
+                    "resume_data": None,
+                    "resume_intent": None,
+                    "resume_state": None,
+                },
+            )
+            response_text = f"Entendido. Cerramos esa consulta.\n\n{guided_menu(context.get('customer_name') or '')}"
+        await conversation_manager.save_message(business_id, user_key, "assistant", response_text)
+        return response_text
 
     # En idle, algunas capacidades del sistema deben resolverse sin dejar espacio a alucinaciones
     # del LLM sobre lo que el bot puede o no puede hacer.
@@ -210,6 +295,15 @@ async def run_conversation_turn(
             "entities": {},
             "missing": [],
             "raw_understanding": "confirmation_shortcut",
+            "response_text": "",
+        }
+    elif st in CALENDAR_BOOKING_STATES:
+        nlu_result = {
+            "intent": Intent.BOOK_APPOINTMENT.value,
+            "confidence": 1.0,
+            "entities": {},
+            "missing": [],
+            "raw_understanding": "calendar_menu_input",
             "response_text": "",
         }
     else:
@@ -268,7 +362,98 @@ async def run_conversation_turn(
             current_intent = None
 
     if current_intent == Intent.BOOK_APPOINTMENT.value:
-        if current_state == State.AWAITING_SLOT_SELECTION.value:
+        if current_state in CALENDAR_BOOKING_STATES:
+            raw = str(message_text or "").strip()
+            if raw == "0" or parse_menu_choice(raw) == "menu":
+                response_text = await _calendar_main_menu(
+                    business_id,
+                    user_key,
+                    context.get("customer_name") or "",
+                )
+            elif raw in {"9", "volver", "atras", "atrás"}:
+                response_text = await _calendar_back(business_id, user_key, context)
+            elif current_state == State.BOOKING_CURRENT_WEEK.value:
+                if raw == "8":
+                    response_text = await handle_booking_month(business_id, user_key, context)
+                else:
+                    selected_day = selected_calendar_day(context, raw)
+                    if selected_day:
+                        pending = {**(context.get("pending_data") or {}), "date": selected_day["date"]}
+                        response_text = await handle_book_appointment(
+                            {
+                                "intent": Intent.BOOK_APPOINTMENT.value,
+                                "confidence": 1.0,
+                                "entities": {"date": selected_day["date"]},
+                                "_raw_user_text": raw,
+                            },
+                            {**context, "pending_data": pending},
+                        )
+                    else:
+                        service_id = int((context.get("pending_data") or {}).get("service_id") or 0)
+                        response_text = (
+                            await handle_booking_current_week(
+                                business_id,
+                                user_key,
+                                service_id,
+                                context,
+                            )
+                            if service_id
+                            else "No entendí esa opción. Respondé con un número de la lista."
+                        )
+            elif current_state == State.BOOKING_MONTH.value:
+                if raw.isdigit():
+                    response_text = await handle_booking_week(
+                        business_id,
+                        user_key,
+                        int(raw),
+                        context,
+                    )
+                else:
+                    response_text = await handle_booking_month(business_id, user_key, context)
+            elif current_state == State.BOOKING_WEEK.value:
+                if raw.isdigit():
+                    response_text = await handle_booking_day(
+                        business_id,
+                        user_key,
+                        int(raw),
+                        context,
+                    )
+                else:
+                    selected_month = (context.get("pending_data") or {}).get("calendar_selected_month")
+                    if selected_month:
+                        response_text = await handle_booking_week(
+                            business_id,
+                            user_key,
+                            int(selected_month.get("index") or 0),
+                            context,
+                        )
+                    else:
+                        response_text = "No entendí esa opción. Respondé con un número de la lista."
+            elif current_state == State.BOOKING_DAY.value:
+                selected_day = selected_calendar_day(context, raw)
+                if selected_day:
+                    pending = {**(context.get("pending_data") or {}), "date": selected_day["date"]}
+                    response_text = await handle_book_appointment(
+                        {
+                            "intent": Intent.BOOK_APPOINTMENT.value,
+                            "confidence": 1.0,
+                            "entities": {"date": selected_day["date"]},
+                            "_raw_user_text": raw,
+                        },
+                        {**context, "pending_data": pending},
+                    )
+                else:
+                    selected_week = (context.get("pending_data") or {}).get("calendar_selected_week")
+                    if selected_week:
+                        response_text = await handle_booking_day(
+                            business_id,
+                            user_key,
+                            int(selected_week.get("index") or 0),
+                            context,
+                        )
+                    else:
+                        response_text = "No entendí esa opción. Respondé con un número de la lista."
+        elif current_state == State.AWAITING_SLOT_SELECTION.value:
             pd = context.get("pending_data") or {}
             explicit_date = resolve_date_from_spanish_text(message_text)
             explicit_time = parse_time_candidates(message_text, allow_bare_hour=False)
@@ -305,6 +490,39 @@ async def run_conversation_turn(
             State.AWAITING_SLOT_SELECTION_MODIFY.value,
         ):
             response_text = await handle_modify_appointment(nlu_result, context)
+
+    if response_text and current_state != State.IDLE.value:
+        post_context = await conversation_manager.get_context(business_id, user_key)
+        post_state = post_context.get("state", State.IDLE.value)
+        attempts = dict(post_context.get("attempts") or {})
+        if post_state == current_state:
+            attempts[current_state] = attempts.get(current_state, 0) + 1
+            if attempts[current_state] >= 3:
+                await conversation_manager.update_context(
+                    business_id,
+                    user_key,
+                    {
+                        "current_intent": None,
+                        "pending_data": {},
+                        "state": State.IDLE.value,
+                        "attempts": {},
+                    },
+                )
+                customer_name = post_context.get("customer_name") or ""
+                response_text = (
+                    "No pude entender lo que necesitás después de varios intentos. "
+                    f"Te dejo el menú:\n\n{guided_menu(customer_name)}"
+                )
+            else:
+                await conversation_manager.update_context(
+                    business_id, user_key, {"attempts": attempts}
+                )
+        else:
+            if current_state in attempts:
+                attempts.pop(current_state)
+                await conversation_manager.update_context(
+                    business_id, user_key, {"attempts": attempts}
+                )
 
     if response_text:
         await conversation_manager.save_message(

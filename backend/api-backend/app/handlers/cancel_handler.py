@@ -133,7 +133,7 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
 
                 if wants_no:
                     await conversation_manager.clear_pending_data(business_id, phone_number)
-                    return "Entendido, tu cita se mantiene. ¿Necesitas algo más?"
+                    return f"Entendido, tu cita se mantiene.\n\n{guided_menu(customer_name)}"
 
                 if wants_yes:
                     await db_service.cancel_appointment(
@@ -150,9 +150,10 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
 
                     await conversation_manager.clear_pending_data(business_id, phone_number)
 
-                    return f"""✅ Tu cita ha sido cancelada exitosamente.
-
-Si cambias de opinión, puedo ayudarte a agendar una nueva cita cuando quieras 😊"""
+                    return (
+                        "✅ Tu cita ha sido cancelada exitosamente.\n\n"
+                        f"{guided_menu(customer_name)}"
+                    )
 
                 return "No entendí. ¿Confirmás que querés cancelar la cita? Respondé sí o no."
 

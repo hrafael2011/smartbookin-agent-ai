@@ -105,6 +105,76 @@ class ScheduleLogicTests(unittest.TestCase):
         preferred = [slot for slot in slots if slot["start_time"] == "10:00 AM"][0]
         self.assertTrue(preferred["is_preferred"])
 
+    def test_build_slots_buffer_zero_same_as_before(self):
+        open_ranges = [
+            (
+                datetime(2026, 5, 30, 9, 0, tzinfo=timezone.utc),
+                datetime(2026, 5, 30, 10, 0, tzinfo=timezone.utc),
+            )
+        ]
+
+        old_behavior = build_slots(
+            open_ranges=open_ranges,
+            blocked_ranges=[],
+            duration_minutes=30,
+            step_minutes=15,
+        )
+        explicit_zero = build_slots(
+            open_ranges=open_ranges,
+            blocked_ranges=[],
+            duration_minutes=30,
+            buffer_minutes=0,
+            step_minutes=15,
+        )
+
+        self.assertEqual(explicit_zero, old_behavior)
+
+    def test_build_slots_buffer_keeps_display_end_without_buffer(self):
+        open_ranges = [
+            (
+                datetime(2026, 5, 30, 9, 0, tzinfo=timezone.utc),
+                datetime(2026, 5, 30, 10, 0, tzinfo=timezone.utc),
+            )
+        ]
+
+        slots = build_slots(
+            open_ranges=open_ranges,
+            blocked_ranges=[],
+            duration_minutes=30,
+            buffer_minutes=10,
+            step_minutes=15,
+        )
+
+        self.assertEqual(slots[0]["start_time"], "9:00 AM")
+        self.assertEqual(slots[0]["end_datetime"], "2026-05-30T09:30:00+00:00")
+        self.assertNotIn("9:30 AM", [slot["start_time"] for slot in slots])
+
+    def test_build_slots_existing_block_respects_buffer_overlap(self):
+        open_ranges = [
+            (
+                datetime(2026, 5, 30, 9, 0, tzinfo=timezone.utc),
+                datetime(2026, 5, 30, 11, 0, tzinfo=timezone.utc),
+            )
+        ]
+        blocked_ranges = [
+            (
+                datetime(2026, 5, 30, 9, 0, tzinfo=timezone.utc),
+                datetime(2026, 5, 30, 9, 40, tzinfo=timezone.utc),
+            )
+        ]
+
+        slots = build_slots(
+            open_ranges=open_ranges,
+            blocked_ranges=blocked_ranges,
+            duration_minutes=30,
+            buffer_minutes=10,
+            step_minutes=10,
+        )
+
+        starts = [slot["start_time"] for slot in slots]
+        self.assertNotIn("9:30 AM", starts)
+        self.assertIn("9:40 AM", starts)
+
 
 if __name__ == "__main__":
     unittest.main()

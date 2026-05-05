@@ -193,6 +193,7 @@ async def process_telegram_update(payload: dict) -> dict:
 
         cmd = _command_base(raw_text)
 
+        # ── /cambiar: clear all bindings and start fresh ──
         if cmd in ("/cambiar", "/switch"):
             user_key = tg_chat_key(chat_id)
             await conversation_manager.delete_all_contexts_for_phone_number(user_key)
@@ -206,6 +207,7 @@ async def process_telegram_update(payload: dict) -> dict:
             )
             return {"status": "ok"}
 
+        # ── /start: onboarding and owner activation ──
         if cmd == "/start":
             parts = raw_text.strip().split(maxsplit=1)
             arg = parts[1].strip() if len(parts) > 1 else ""
@@ -226,38 +228,148 @@ async def process_telegram_update(payload: dict) -> dict:
                 else:
                     await _reply_invalid_invite_attempt(chat_id, telegram_user_id)
             else:
-                # Telegram a menudo manda solo "/start" (sin payload) al reabrir el chat;
-                # si ya hay vínculo, repetimos bienvenida en lugar de pedir el enlace otra vez.
-                owner_binding = await get_owner_binding_by_telegram_user_id(
-                    telegram_user_id
-                )
-                if owner_binding:
-                    # Reset any active owner flow so /start always lands on the menu
-                    _o_key = owner_user_key(telegram_user_id)
-                    _o_bid = int(owner_binding["business_id"])
-                    await conversation_manager.update_context(
-                        _o_bid, _o_key,
-                        {"current_intent": "owner_command", "pending_data": {}, "state": "idle"},
-                    )
-                    await telegram_client.send_text_message(
-                        chat_id=chat_id,
-                        message=owner_menu(owner_binding.get("business_name") or "tu negocio"),
-                    )
-                    return {"status": "ok"}
-
+                # Customer binding takes priority: /start always lands on the customer
+                # welcome when a customer link is active, even if owner binding also exists.
                 existing_bid = await get_binding_business_id(telegram_user_id)
                 if existing_bid is not None:
                     await _send_welcome_for_business(existing_bid, chat_id)
                 else:
-                    await telegram_client.send_text_message(
-                        chat_id=chat_id,
-                        message=(
-                            "¡Hola! Para hablar con un negocio necesitás su enlace o código.\n\n"
-                            "Si ya lo tenés, tocá <b>Iniciar</b> en el enlace o escribí el código aquí."
-                        ),
-                    )
+                    owner_binding = await get_owner_binding_by_telegram_user_id(telegram_user_id)
+                    if owner_binding:
+                        _o_key = owner_user_key(telegram_user_id)
+                        _o_bid = int(owner_binding["business_id"])
+                        await conversation_manager.update_context(
+                            _o_bid, _o_key,
+                            {"current_intent": "owner_command", "pending_data": {}, "state": "idle"},
+                        )
+                        await telegram_client.send_text_message(
+                            chat_id=chat_id,
+                            message=owner_menu(owner_binding.get("business_name") or "tu negocio"),
+                        )
+                    else:
+                        await telegram_client.send_text_message(
+                            chat_id=chat_id,
+                            message=(
+                                "¡Hola! Para hablar con un negocio necesitás su enlace o código.\n\n"
+                                "Si ya lo tenés, tocá <b>Iniciar</b> en el enlace o escribí el código aquí."
+                            ),
+                        )
             return {"status": "ok"}
 
+        # ── /panel: explicit owner panel access (for owners who also have a customer binding) ──
+        if cmd == "/panel":
+            owner_binding = await get_owner_binding_by_telegram_user_id(telegram_user_id)
+            if owner_binding:
+                _o_key = owner_user_key(telegram_user_id)
+                _o_bid = int(owner_binding["business_id"])
+                await conversation_manager.update_context(
+                    _o_bid, _o_key,
+                    {"current_intent": "owner_command", "pending_data": {}, "state": "idle"},
+                )
+                await telegram_client.send_text_message(
+                    chat_id=chat_id,
+                    message=owner_menu(owner_binding.get("business_name") or "tu negocio"),
+                )
+            else:
+                await telegram_client.send_text_message(
+                    chat_id=chat_id,
+                    message=(
+                        "No tenés un canal de dueño activado. "
+                        "Activalo desde el panel del negocio."
+                    ),
+                )
+            return {"status": "ok"}
+
+        # ── Customer routing (takes priority over owner routing) ──
+        # A user who has a customer binding is always routed through the customer flow,
+        # even if they also have an owner binding. Owner panel is accessible via /panel.
+        business_id: Optional[int] = await get_binding_business_id(telegram_user_id)
+        user_key = tg_chat_key(chat_id)
+
+        if business_id is not None:
+            if not await should_process_channel_event(
+                channel="telegram",
+                business_id=business_id,
+                user_key=user_key,
+                event_id=message_data.get("message_id"),
+            ):
+                return {"status": "ok"}
+
+            ctx = await conversation_manager.get_context(business_id, user_key)
+
+            # Sync name from DB if context was wiped but customer exists
+            if ctx.get("state") == "awaiting_telegram_display_name":
+                cust_sync = await db_service.get_customer_by_channel(business_id, user_key)
+                if cust_sync and cust_sync.get("name") and str(cust_sync["name"]).strip():
+                    await conversation_manager.set_customer_info(
+                        business_id,
+                        user_key,
+                        cust_sync["id"],
+                        str(cust_sync["name"]).strip(),
+                    )
+                    await conversation_manager.update_context(
+                        business_id, user_key, {"state": "idle"}
+                    )
+                    ctx = await conversation_manager.get_context(business_id, user_key)
+
+            # Name capture: complete onboarding before anything else
+            if ctx.get("state") == "awaiting_telegram_display_name":
+                text_in = (raw_text or "").strip()
+                if text_in and cmd not in ("/start", "/cambiar", "/switch", "/panel"):
+                    resp = await _handle_telegram_display_name_capture(
+                        business_id, user_key, text_in
+                    )
+                    await conversation_manager.save_message(business_id, user_key, "user", text_in)
+                    await conversation_manager.save_message(business_id, user_key, "assistant", resp)
+                    await telegram_client.send_text_message(chat_id=chat_id, message=resp)
+                return {"status": "ok"}
+
+            # Reject empty messages
+            if not (message_text or "").strip():
+                await telegram_client.send_text_message(
+                    chat_id=chat_id,
+                    message="Por ahora solo puedo leer mensajes de texto. Escribime en texto, por favor.",
+                )
+                return {"status": "ok"}
+
+            # Guided menu router
+            from app.services.rate_limit_async import consume_daily_quota
+
+            decision = route_guided_message(message_text, ctx)
+            quota = await consume_daily_quota(
+                business_id=business_id,
+                user_channel_id=telegram_user_id,
+                is_ai_message=decision.uses_ai,
+            )
+            if not quota["allowed"]:
+                logger.info("tg_quota_blocked business=%s user=%s", business_id, telegram_user_id)
+                await telegram_client.send_text_message(chat_id=chat_id, message=quota["message"])
+                return {"status": "ok"}
+
+            guided = await execute_guided_route(business_id, user_key, decision, ctx)
+            if guided:
+                logger.info(
+                    "tg_route guided_router kind=%s business=%s user=%s",
+                    decision.kind, business_id, telegram_user_id,
+                )
+                await conversation_manager.save_message(business_id, user_key, "user", message_text)
+                await conversation_manager.save_message(business_id, user_key, "assistant", guided)
+                await telegram_client.send_text_message(chat_id=chat_id, message=guided)
+                return {"status": "ok"}
+
+            # NLU pipeline fallback (guided returned None)
+            logger.info(
+                "tg_route pass_through kind=%s uses_ai=%s business=%s user=%s",
+                decision.kind, decision.uses_ai, business_id, telegram_user_id,
+            )
+            response_text = await _run_nlu_pipeline(business_id, user_key, message_text)
+            logger.info("tg_route ai_pipeline business=%s user=%s", business_id, telegram_user_id)
+            await conversation_manager.save_message(business_id, user_key, "user", message_text)
+            await conversation_manager.save_message(business_id, user_key, "assistant", response_text)
+            await telegram_client.send_text_message(chat_id=chat_id, message=response_text)
+            return {"status": "ok"}
+
+        # ── No customer binding: owner routing ──
         owner_binding = await get_owner_binding_by_telegram_user_id(telegram_user_id)
         if owner_binding:
             business_id = int(owner_binding["business_id"])
@@ -282,156 +394,41 @@ async def process_telegram_update(payload: dict) -> dict:
             )
             logger.info(
                 "tg_route owner_router kind=%s business=%s user=%s",
-                decision.kind,
-                business_id,
-                telegram_user_id,
+                decision.kind, business_id, telegram_user_id,
             )
-            await conversation_manager.save_message(
-                business_id, user_key, "user", message_text
-            )
-            await conversation_manager.save_message(
-                business_id, user_key, "assistant", response_text
-            )
-            await telegram_client.send_text_message(
-                chat_id=chat_id,
-                message=response_text,
-            )
+            await conversation_manager.save_message(business_id, user_key, "user", message_text)
+            await conversation_manager.save_message(business_id, user_key, "assistant", response_text)
+            await telegram_client.send_text_message(chat_id=chat_id, message=response_text)
             return {"status": "ok"}
 
-        business_id: Optional[int] = await get_binding_business_id(telegram_user_id)
-        user_key = tg_chat_key(chat_id)
-
-        if business_id is not None and not await should_process_channel_event(
-            channel="telegram",
-            business_id=business_id,
-            user_key=user_key,
-            event_id=message_data.get("message_id"),
-        ):
+        # ── Neither: try invite code or show generic message ──
+        candidate = raw_text.strip()
+        if _CODE_LIKE.match(candidate):
+            bid = await resolve_invite_token(candidate)
+            if bid:
+                await set_user_binding(telegram_user_id, bid)
+                await mark_first_telegram_contact(bid)
+                await _send_welcome_for_business(bid, chat_id)
+                return {"status": "ok"}
+            await _reply_invalid_invite_attempt(chat_id, telegram_user_id)
             return {"status": "ok"}
-
-        if business_id is not None:
-            ctx_onb = await conversation_manager.get_context(business_id, user_key)
-            if ctx_onb.get("state") == "awaiting_telegram_display_name":
-                cust_sync = await db_service.get_customer_by_channel(business_id, user_key)
-                if cust_sync and cust_sync.get("name") and str(cust_sync["name"]).strip():
-                    await conversation_manager.set_customer_info(
-                        business_id,
-                        user_key,
-                        cust_sync["id"],
-                        str(cust_sync["name"]).strip(),
-                    )
-                    await conversation_manager.update_context(
-                        business_id, user_key, {"state": "idle"}
-                    )
-                    ctx_onb = await conversation_manager.get_context(business_id, user_key)
-            if ctx_onb.get("state") == "awaiting_telegram_display_name":
-                text_in = (raw_text or "").strip()
-                if text_in and _command_base(raw_text) not in ("/start", "/cambiar", "/switch"):
-                    resp = await _handle_telegram_display_name_capture(
-                        business_id, user_key, text_in
-                    )
-                    await conversation_manager.save_message(
-                        business_id, user_key, "user", text_in
-                    )
-                    await conversation_manager.save_message(
-                        business_id, user_key, "assistant", resp
-                    )
-                    await telegram_client.send_text_message(chat_id=chat_id, message=resp)
-                    return {"status": "ok"}
-
-        if business_id is not None and not (message_text or "").strip():
-            await telegram_client.send_text_message(
-                chat_id=chat_id,
-                message="Por ahora solo puedo leer mensajes de texto. Escribime en texto, por favor.",
-            )
-            return {"status": "ok"}
-
-        if business_id is not None:
-            from app.services.rate_limit_async import consume_daily_quota
-
-            ctx = await conversation_manager.get_context(business_id, user_key)
-            decision = route_guided_message(message_text, ctx)
-            quota = await consume_daily_quota(
-                business_id=business_id,
-                user_channel_id=telegram_user_id,
-                is_ai_message=decision.uses_ai,
-            )
-            if not quota["allowed"]:
-                logger.info(
-                    "tg_quota_blocked business=%s user=%s",
-                    business_id,
-                    telegram_user_id,
-                )
-                await telegram_client.send_text_message(
-                    chat_id=chat_id,
-                    message=quota["message"],
-                )
-                return {"status": "ok"}
-
-            guided = await execute_guided_route(business_id, user_key, decision, ctx)
-            if guided:
-                logger.info(
-                    "tg_route guided_router kind=%s business=%s user=%s",
-                    decision.kind,
-                    business_id,
-                    telegram_user_id,
-                )
-                await conversation_manager.save_message(
-                    business_id, user_key, "user", message_text
-                )
-                await conversation_manager.save_message(
-                    business_id, user_key, "assistant", guided
-                )
-                await telegram_client.send_text_message(
-                    chat_id=chat_id,
-                    message=guided,
-                )
-                return {"status": "ok"}
-
-        if business_id is None:
-            candidate = raw_text.strip()
-            if _CODE_LIKE.match(candidate):
-                bid = await resolve_invite_token(candidate)
-                if bid:
-                    await set_user_binding(telegram_user_id, bid)
-                    await mark_first_telegram_contact(bid)
-                    await _send_welcome_for_business(bid, chat_id)
-                    return {"status": "ok"}
-                await _reply_invalid_invite_attempt(chat_id, telegram_user_id)
-                return {"status": "ok"}
-            if looks_like_owner_command(candidate):
-                await telegram_client.send_text_message(
-                    chat_id=chat_id,
-                    message=(
-                        "Para usar el canal del dueño, vinculá este Telegram desde el panel "
-                        "del negocio y abrí el enlace de activación."
-                    ),
-                )
-                return {"status": "ok"}
+        if looks_like_owner_command(candidate):
             await telegram_client.send_text_message(
                 chat_id=chat_id,
                 message=(
-                    "Todavía no estás vinculado a un negocio. "
-                    "Usá el enlace que te compartieron o escribí el código del local.\n\n"
-                    "Para cambiar de negocio más tarde: /cambiar"
+                    "Para usar el canal del dueño, vinculá este Telegram desde el panel "
+                    "del negocio y abrí el enlace de activación."
                 ),
             )
             return {"status": "ok"}
-
-        logger.info(
-            "tg_route pass_through kind=%s uses_ai=%s business=%s user=%s",
-            decision.kind,
-            decision.uses_ai,
-            business_id,
-            telegram_user_id,
+        await telegram_client.send_text_message(
+            chat_id=chat_id,
+            message=(
+                "Todavía no estás vinculado a un negocio. "
+                "Usá el enlace que te compartieron o escribí el código del local.\n\n"
+                "Para cambiar de negocio más tarde: /cambiar"
+            ),
         )
-        response_text = await _run_nlu_pipeline(business_id, user_key, message_text)
-        logger.info(
-            "tg_route ai_pipeline business=%s user=%s",
-            business_id,
-            telegram_user_id,
-        )
-        await telegram_client.send_text_message(chat_id=chat_id, message=response_text)
         return {"status": "ok"}
 
     except Exception as e:

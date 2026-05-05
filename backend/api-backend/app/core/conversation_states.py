@@ -35,6 +35,11 @@ class State(str, Enum):
     AWAITING_NEW_DATE = "awaiting_new_date"
     AWAITING_NEW_TIME = "awaiting_new_time"
     AWAITING_SLOT_SELECTION_MODIFY = "awaiting_slot_selection_modify"
+    AWAITING_SESSION_RESUME = "awaiting_session_resume"
+    BOOKING_CURRENT_WEEK = "booking_current_week"
+    BOOKING_MONTH = "booking_month"
+    BOOKING_WEEK = "booking_week"
+    BOOKING_DAY = "booking_day"
 
 
 BOOKING_FLOW_STATES: FrozenSet[str] = frozenset(
@@ -43,6 +48,10 @@ BOOKING_FLOW_STATES: FrozenSet[str] = frozenset(
         State.AWAITING_DATE.value,
         State.AWAITING_TIME.value,
         State.AWAITING_NAME.value,
+        State.BOOKING_CURRENT_WEEK.value,
+        State.BOOKING_MONTH.value,
+        State.BOOKING_WEEK.value,
+        State.BOOKING_DAY.value,
         State.AWAITING_SLOT_SELECTION.value,
         State.AWAITING_BOOKING_CONFIRMATION.value,
     }

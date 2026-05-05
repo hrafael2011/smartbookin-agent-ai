@@ -91,6 +91,7 @@ export interface Service {
   name: string
   description?: string
   duration_minutes: number // minutes
+  buffer_minutes: number // minutes
   price: string // decimal
   is_active: boolean
   created_at: string
@@ -101,6 +102,7 @@ export interface ServiceFormData {
   name: string
   description?: string
   duration_minutes: number
+  buffer_minutes: number
   price: number | string
   is_active: boolean
 }

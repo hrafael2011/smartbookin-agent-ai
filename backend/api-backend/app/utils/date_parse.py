@@ -55,9 +55,9 @@ def resolve_date_from_spanish_text(text: str, today: Optional[date] = None) -> O
     today = today or datetime.now(DEFAULT_OPERATIONAL_TZ).date()
     t = str(text).lower().strip()
 
-    if t in ("hoy", "today"):
+    if re.search(r"\bhoy\b", t) or re.search(r"\btoday\b", t):
         return today.strftime("%Y-%m-%d")
-    if t in ("mañana", "manana", "tomorrow"):
+    if re.search(r"\bma[ñn]ana\b", t) or re.search(r"\btomorrow\b", t):
         return (today + timedelta(days=1)).strftime("%Y-%m-%d")
     if "pasado mañana" in t or "pasado manana" in t:
         return (today + timedelta(days=2)).strftime("%Y-%m-%d")
@@ -145,3 +145,36 @@ def format_date_human_es(iso_date: str) -> str:
         "diciembre",
     )
     return f"{names[d.weekday()]} {d.day} de {months[d.month]}"
+
+
+def format_week_label(start: date, end: date) -> str:
+    """Ej: date(2026, 6, 1), date(2026, 6, 7) -> 'Semana del 1 al 7'."""
+    if start.month == end.month:
+        return f"Semana del {start.day} al {end.day}"
+    return f"Semana del {start.day} de {_month_name(start.month)} al {end.day} de {_month_name(end.month)}"
+
+
+def format_month_label(year: int, month: int) -> str:
+    """Ej: 2026, 6 -> 'Junio 2026'."""
+    return f"{_month_name(month).capitalize()} {year}"
+
+
+def _month_name(month: int) -> str:
+    months = (
+        "",
+        "enero",
+        "febrero",
+        "marzo",
+        "abril",
+        "mayo",
+        "junio",
+        "julio",
+        "agosto",
+        "septiembre",
+        "octubre",
+        "noviembre",
+        "diciembre",
+    )
+    if 1 <= month <= 12:
+        return months[month]
+    return ""

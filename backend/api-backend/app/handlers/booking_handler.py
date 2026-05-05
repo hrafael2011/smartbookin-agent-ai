@@ -3,9 +3,11 @@ Handler para el intent book_appointment
 """
 import logging
 import re
+from datetime import date as date_type, timedelta
 from typing import Dict, List
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
+from app.utils.conversation_routing import guided_menu
 from app.utils.date_parse import format_date_human_es
 from app.utils.time_parser import (
     filter_slots_by_hhmm_range,
@@ -18,10 +20,32 @@ from app.utils.time_parser import (
 logger = logging.getLogger(__name__)
 
 
-def _slots_short_list(slots: List[Dict], limit: int = 3) -> str:
+_SLOTS_PAGE_SIZE = 6
+
+
+def _paginate_slots(slots: List[Dict], page: int, page_size: int = _SLOTS_PAGE_SIZE) -> Dict:
+    total = len(slots)
+    total_pages = max(1, -(-total // page_size))  # ceiling division
+    page = max(0, min(page, total_pages - 1))
+    start = page * page_size
+    end = start + page_size
+    return {
+        "slots": slots[start:end],
+        "page": page,
+        "total_pages": total_pages,
+        "has_prev": page > 0,
+        "has_next": page < total_pages - 1,
+    }
+
+
+def _slots_short_list(page_info: Dict) -> str:
     lines = []
-    for i, slot in enumerate(slots[:limit], 1):
+    for i, slot in enumerate(page_info["slots"], 1):
         lines.append(f"  {i}. {slot.get('start_time')}")
+    if page_info.get("has_prev"):
+        lines.append("  7) ← Página anterior")
+    if page_info.get("has_next"):
+        lines.append("  8) Siguiente →")
     return "\n".join(lines)
 
 
@@ -51,6 +75,13 @@ def _resolve_service_choice(services: List[Dict], raw_text: str, entity_service:
         if s["name"].lower() in candidate or candidate in s["name"].lower():
             return s["name"]
     return ""
+
+
+def _suggested_days_text(days: List[Dict]) -> str:
+    return "\n".join(
+        f"  {i}. {format_date_human_es(d['date'])}"
+        for i, d in enumerate(days, 1)
+    )
 
 
 def _looks_like_availability_question(nlu_result: Dict) -> bool:
@@ -226,6 +257,17 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         pending_data.pop("available_slots", None)
         pending_data.pop("selected_slot", None)
 
+    # T023: Suggested day selection — user picks "1", "2" or "3" from offered alternatives
+    if pending_data.get("suggested_days") and not pending_data.get("date"):
+        txt = str(raw_user_text or "").strip()
+        m = re.search(r"\b([123])\b", txt)
+        if m:
+            idx = int(m.group(1)) - 1
+            suggested = pending_data.get("suggested_days", [])
+            if 0 <= idx < len(suggested):
+                pending_data["date"] = suggested[idx]["date"]
+                pending_data.pop("suggested_days", None)
+
     # Resolver servicio desde el texto aunque aún no haya fecha (evita perder "Corte" al pedir el día)
     if not pending_data.get("service"):
         services_early = await db_service.get_business_services(business_id)
@@ -239,6 +281,27 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
 
     # 3. Fecha primero
     if not pending_data.get("date"):
+        if pending_data.get("service"):
+            services_for_calendar = await db_service.get_business_services(business_id)
+            service_for_calendar = next(
+                (
+                    s
+                    for s in services_for_calendar
+                    if s["name"].lower() in str(pending_data["service"]).lower()
+                ),
+                None,
+            )
+            if service_for_calendar:
+                from app.handlers.booking_calendar_handler import handle_booking_current_week
+
+                pending_data["service_id"] = service_for_calendar["id"]
+                return await handle_booking_current_week(
+                    business_id,
+                    phone_number,
+                    service_for_calendar["id"],
+                    {**context, "pending_data": pending_data},
+                    reset_stack=True,
+                )
         await conversation_manager.update_context(
             business_id,
             phone_number,
@@ -285,7 +348,40 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         date_show = format_date_human_es(str(pending_data["date"]))
 
         if not slots:
+            from datetime import date as _date_type
+            try:
+                next_from = _date_type.fromisoformat(str(pending_data["date"])) + timedelta(days=1)
+            except Exception:
+                next_from = None
+            next_days = (
+                await db_service.get_next_available_days(
+                    business_id=business_id,
+                    service_id=service_for_query["id"],
+                    from_date=next_from,
+                    limit=3,
+                    max_days=14,
+                )
+                if next_from
+                else []
+            )
             pending_data.pop("date", None)
+            if next_days:
+                pending_data["suggested_days"] = next_days
+                await conversation_manager.update_context(
+                    business_id,
+                    phone_number,
+                    {
+                        "current_intent": "book_appointment",
+                        "state": "awaiting_date",
+                        "pending_data": pending_data,
+                    },
+                )
+                return (
+                    f"El <b>{date_show}</b> no tenemos horarios disponibles. "
+                    f"Los próximos días con disponibilidad son:\n\n"
+                    f"{_suggested_days_text(next_days)}\n\n"
+                    "¿Cuál preferís? (1, 2 o 3) O decime otra fecha."
+                )
             await conversation_manager.update_context(
                 business_id,
                 phone_number,
@@ -300,18 +396,24 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
                 "¿Querés probar otro día?"
             )
 
+        page_info = _paginate_slots(slots, page=0)
         await conversation_manager.update_context(
             business_id,
             phone_number,
             {
                 "current_intent": "book_appointment",
                 "state": "awaiting_slot_selection",
-                "pending_data": {**pending_data, "available_slots": slots[:8]},
+                "pending_data": {
+                    **pending_data,
+                    "available_slots": slots,
+                    "slot_page": 0,
+                    "service_id": service_for_query["id"],
+                },
             },
         )
         return (
             f"Para el <b>{date_show}</b> tenemos estos horarios:\n\n"
-            f"{_slots_short_list(slots, limit=8)}\n\n"
+            f"{_slots_short_list(page_info)}\n\n"
             "¿Cuál preferís? Respondé con el número o la hora exacta."
         )
 
@@ -405,9 +507,44 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
             slots = filter_slots_by_hhmm_range(slots, dr["start"], dr["end"])
 
         if not slots:
-            # No hay disponibilidad
-            await conversation_manager.clear_pending_data(business_id, phone_number)
             date_show = format_date_human_es(date_str or "")
+            try:
+                next_from = date_type.fromisoformat(str(date_str)) + timedelta(days=1)
+            except Exception:
+                next_from = None
+            next_days = (
+                await db_service.get_next_available_days(
+                    business_id=business_id,
+                    service_id=service_id,
+                    from_date=next_from,
+                    limit=3,
+                    max_days=14,
+                )
+                if next_from
+                else []
+            )
+            fresh_pending = dict(pending_data)
+            fresh_pending.pop("date", None)
+            fresh_pending.pop("time", None)
+            fresh_pending.pop("time_daypart_range", None)
+            if next_days:
+                fresh_pending["suggested_days"] = next_days
+                await conversation_manager.update_context(
+                    business_id,
+                    phone_number,
+                    {
+                        "current_intent": "book_appointment",
+                        "state": "awaiting_date",
+                        "pending_data": fresh_pending,
+                    },
+                )
+                return (
+                    f"No tengo disponibilidad para {service['name']} el {date_show}. "
+                    f"Los próximos días disponibles son:\n\n"
+                    f"{_suggested_days_text(next_days)}\n\n"
+                    "¿Cuál preferís? (1, 2 o 3) O decime otra fecha."
+                )
+            await conversation_manager.clear_pending_data(business_id, phone_number)
             return f"Lo siento, no tengo disponibilidad para {service['name']} el {date_show}. ¿Te gustaría otra fecha?"
 
         exact_slot = pick_exact_slot(slots, time_str or "", allow_bare_hour=True)
@@ -441,6 +578,7 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         )
         suggestions = ranked_slots[:8]
 
+        page_info2 = _paginate_slots(suggestions, page=0)
         await conversation_manager.update_context(
             business_id,
             phone_number,
@@ -451,6 +589,7 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
                     **pending_data,
                     "service_id": service_id,
                     "available_slots": suggestions,
+                    "slot_page": 0,
                 },
             },
         )
@@ -461,7 +600,7 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         date_show = format_date_human_es(date_str or "")
         return (
             f"No tengo disponibilidad exacta a las <b>{req_txt}</b> para {service['name']} el {date_show}.\n\n"
-            f"Sí tengo estas opciones:\n{_slots_short_list(suggestions, limit=8)}\n\n"
+            f"Sí tengo estas opciones:\n{_slots_short_list(page_info2)}\n\n"
             "Decime cuál preferís (número u hora exacta)."
         )
 
@@ -485,6 +624,35 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
     if not available_slots:
         return "Parece que perdí los horarios disponibles. ¿Podrías decirme de nuevo para cuándo quieres la cita?"
 
+    current_page = int(pending_data.get("slot_page") or 0)
+    page_info = _paginate_slots(available_slots, page=current_page)
+
+    # T028: intercept page navigation keys before slot resolution
+    raw_nav = str(nlu_result.get("_raw_user_text") or "").strip()
+    if raw_nav == "8" and page_info["has_next"]:
+        new_page = current_page + 1
+        new_page_info = _paginate_slots(available_slots, page=new_page)
+        await conversation_manager.update_context(
+            business_id, phone_number, {"pending_data": {**pending_data, "slot_page": new_page}}
+        )
+        return (
+            f"Página {new_page + 1}:\n\n"
+            f"{_slots_short_list(new_page_info)}\n\n"
+            "¿Cuál preferís?"
+        )
+    if raw_nav == "7" and page_info["has_prev"]:
+        new_page = current_page - 1
+        new_page_info = _paginate_slots(available_slots, page=new_page)
+        await conversation_manager.update_context(
+            business_id, phone_number, {"pending_data": {**pending_data, "slot_page": new_page}}
+        )
+        return (
+            f"Página {new_page + 1}:\n\n"
+            f"{_slots_short_list(new_page_info)}\n\n"
+            "¿Cuál preferís?"
+        )
+
+    page_slots = page_info["slots"]
     time_entity = nlu_result.get("entities", {}).get("time")
     fallback_message_lower = str(
         nlu_result.get("_raw_user_text")
@@ -492,7 +660,7 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
         or ""
     ).lower()
     selected_slot = _resolve_slot_selection(
-        available_slots,
+        page_slots,
         fallback_message_lower,
         str(time_entity or ""),
     )
@@ -500,7 +668,7 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
     if not selected_slot:
         return (
             "No entendí cuál horario elegiste.\n\n"
-            f"Estas siguen siendo las opciones:\n{_slots_short_list(available_slots, limit=8)}\n\n"
+            f"Estas siguen siendo las opciones:\n{_slots_short_list(page_info)}\n\n"
             "Podés responder con el número, decir una hora exacta o indicarme otro día."
         )
 
@@ -578,7 +746,7 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
             )
             return (
                 "Perfecto, cambiamos el horario. Estas son las opciones disponibles:\n\n"
-                f"{_slots_short_list(available_slots, limit=8)}\n\n"
+                f"{_slots_short_list(_paginate_slots(available_slots, page=0))}\n\n"
                 "Decime el número u otra hora exacta."
             )
         await conversation_manager.update_context(
@@ -638,7 +806,7 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
             )
             return (
                 "Ese horario ya no está disponible. Te comparto opciones actualizadas:\n\n"
-                f"{_slots_short_list(fresh.get('available_slots', []), limit=8)}\n\n"
+                f"{_slots_short_list(_paginate_slots(fresh.get('available_slots', []), page=0))}\n\n"
                 "Decime cuál preferís."
             )
 
@@ -651,6 +819,28 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
             "created_via": "telegram",
         }
         appointment = await db_service.create_appointment(appointment_data)
+        if isinstance(appointment, dict) and appointment.get("error") == "slot_conflict":
+            fresh2 = await db_service.get_availability(
+                business_id=business_id,
+                service_id=service_id,
+                date=str(pending_data.get("date") or ""),
+            )
+            fresh_slots = fresh2.get("available_slots", [])[:8]
+            await conversation_manager.update_context(
+                business_id,
+                phone_number,
+                {
+                    "current_intent": "book_appointment",
+                    "state": "awaiting_slot_selection",
+                    "pending_data": {**pending_data, "available_slots": fresh_slots},
+                },
+            )
+            return (
+                "Ese horario acaba de ser reservado por otra persona. "
+                "Te muestro las opciones actualizadas:\n\n"
+                f"{_slots_short_list(_paginate_slots(fresh_slots, page=0))}\n\n"
+                "Decime cuál preferís."
+            )
         logger.info(
             "booking_confirmed business=%s user=%s customer=%s service=%s appointment=%s slot=%s",
             business_id,
@@ -663,15 +853,16 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
         await conversation_manager.clear_pending_data(business_id, phone_number)
 
         business = await db_service.get_business(business_id)
+        customer_name = context.get("customer_name") or ""
         return (
             "✅ ¡Tu cita está confirmada!\n\n"
-            f"👤 {context.get('customer_name', 'Cliente')}\n"
+            f"👤 {customer_name or 'Cliente'}\n"
             f"📅 {format_date_human_es(pending_data.get('date') or '')}\n"
             f"⏰ {selected_slot.get('start_time')}\n"
             f"✂️ {pending_data.get('service', 'servicio')}\n"
             f"📍 {business.get('name', '')}\n"
             f"    {business.get('address', '')}\n\n"
-            "¿Necesitás algo más?"
+            f"{guided_menu(customer_name)}"
         )
     except Exception:
         await conversation_manager.clear_pending_data(business_id, phone_number)
