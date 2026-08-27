@@ -52,7 +52,7 @@ async def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if not owner.email_verified:
+    if config.REQUIRE_EMAIL_VERIFICATION and not owner.email_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Correo no verificado. Revisá tu bandeja o pedí un nuevo enlace.",
@@ -78,7 +78,12 @@ async def login_for_access_token(
 @router.post("/refresh", response_model=RefreshTokenResponse)
 async def refresh_access_token(body: RefreshTokenBody):
     owner, new_refresh = await consume_and_rotate_refresh(body.refresh)
-    if not owner or not owner.email_verified or not new_refresh:
+    if not owner or not new_refresh:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido o expirado",
+        )
+    if config.REQUIRE_EMAIL_VERIFICATION and not owner.email_verified:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token inválido o expirado",
@@ -105,7 +110,7 @@ async def register_owner(owner_in: OwnerCreate, db: AsyncSession = Depends(get_d
         raise HTTPException(status_code=400, detail="Email already registered")
 
     now = datetime.now(timezone.utc)
-    verified = bool(config.AUTO_VERIFY_EMAIL)
+    verified = not config.REQUIRE_EMAIL_VERIFICATION
     v_token = None
     v_expires = None
     if not verified:

@@ -17,6 +17,13 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
+    return value.lower() in ("1", "true", "yes")
+
+
 class Config:
     """Configuración centralizada"""
 
@@ -50,12 +57,15 @@ class Config:
     TELEGRAM_API_BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
     TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "").lstrip("@")
 
-    # Registro: si true, no exige verificación por email (útil en desarrollo)
-    AUTO_VERIFY_EMAIL = os.getenv("AUTO_VERIFY_EMAIL", "true").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    # Registro: si false (MVP), el registro activa la cuenta directamente
+    # (reemplaza al antiguo AUTO_VERIFY_EMAIL, invertido)
+    REQUIRE_EMAIL_VERIFICATION = _bool_env("REQUIRE_EMAIL_VERIFICATION", False)
+
+    # ── Flags de poda MVP (fase 1): false = función diferida post-MVP ──
+    # Canal de comandos del owner en Telegram (el dueño usa el panel web)
+    OWNER_CHANNEL_ENABLED = _bool_env("OWNER_CHANNEL_ENABLED", False)
+    # Waitlist con auto-oferta (cancelar solo cancela; sin job de expiración)
+    WAITLIST_ENABLED = _bool_env("WAITLIST_ENABLED", False)
 
     # Sentry & Monitoring
     SENTRY_DSN = os.getenv("SENTRY_DSN")

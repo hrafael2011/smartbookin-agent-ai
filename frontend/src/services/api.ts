@@ -803,14 +803,6 @@ export const scheduleAPI = {
   archiveException: async (id: number): Promise<void> => {
     await api.delete('/schedule-exceptions/' + id)
   },
-
-  restoreException: async (id: number, reason?: string): Promise<ScheduleException> => {
-    const response = await api.post<RawScheduleException>(
-      '/schedule-exceptions/' + id + '/restore',
-      { reason: reason || null }
-    )
-    return mapScheduleException(response.data)
-  },
 }
 
 export const waitlistAPI = {

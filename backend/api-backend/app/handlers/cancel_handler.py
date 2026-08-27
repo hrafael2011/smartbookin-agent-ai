@@ -73,7 +73,7 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
     1. Obtener citas futuras del cliente
     2. Si tiene solo 1, confirmar cancelación
     3. Si tiene múltiples, pedir que elija cuál
-    4. Cancelar y activar waitlist automáticamente
+    4. Cancelar la cita (la waitlist con auto-oferta está diferida post-MVP, flag WAITLIST_ENABLED)
 
     Args:
         nlu_result: Resultado del NLU Engine

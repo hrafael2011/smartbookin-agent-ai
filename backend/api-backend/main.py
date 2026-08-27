@@ -21,7 +21,6 @@ from app.api import (
 )
 from app.services import db_service, whatsapp_client, conversation_manager
 from app.services.background_tasks import (
-    generate_daily_agenda,
     process_appointment_reminders,
     process_waitlist_expiration,
 )
@@ -52,13 +51,14 @@ async def lifespan(app: FastAPI):
     
     # Run reminders every 30 minutes
     scheduler.add_job(process_appointment_reminders, 'interval', minutes=30, id='reminders_job', replace_existing=True)
-    
-    # Run waitlist expiration every hour
-    scheduler.add_job(process_waitlist_expiration, 'interval', minutes=60, id='waitlist_job', replace_existing=True)
-    
-    # Run agenda generation daily at 8:00 AM
-    scheduler.add_job(generate_daily_agenda, 'cron', hour=8, minute=0, id='agenda_job', replace_existing=True)
-    
+
+    # MVP (fase 1): waitlist diferida tras flag — solo se crea el job si está activa
+    if config.WAITLIST_ENABLED:
+        scheduler.add_job(process_waitlist_expiration, 'interval', minutes=60, id='waitlist_job', replace_existing=True)
+
+    # Agenda diaria del owner (8:00) diferida post-MVP: el código queda en
+    # background_tasks.py pero el job no se registra (cron externo tampoco lo usa)
+
     yield
     
     # Shutdown: Stop scheduler

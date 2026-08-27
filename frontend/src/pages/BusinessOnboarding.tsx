@@ -1,18 +1,9 @@
 import { FormEvent, useState } from 'react'
 import { Building2, MapPin, Phone, Store } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Select } from '@/components/ui'
+import { Button, Card, CardContent, CardHeader, CardTitle, Input } from '@/components/ui'
 import { useBusinessStore } from '@/store/businessStore'
 import type { BusinessFormData } from '@/types'
-
-const categoryOptions = [
-  { value: 'barbershop', label: 'Barbería' },
-  { value: 'beauty_salon', label: 'Salón de belleza' },
-  { value: 'clinic', label: 'Clínica' },
-  { value: 'spa', label: 'Spa' },
-  { value: 'consulting', label: 'Consultoría' },
-  { value: 'other', label: 'Otro' },
-]
 
 type BusinessOnboardingProps = {
   compact?: boolean
@@ -25,7 +16,6 @@ export default function BusinessOnboarding({ compact = false, onCreated }: Busin
   const [form, setForm] = useState<BusinessFormData>({
     name: '',
     phone: '',
-    category: 'barbershop',
     description: '',
     address: '',
   })
@@ -35,10 +25,10 @@ export default function BusinessOnboarding({ compact = false, onCreated }: Busin
     setError(null)
 
     try {
+      // Categoría/ubicación diferidas post-MVP (fase 1): el backend las tolera opcionales
       await createBusiness({
         name: form.name.trim(),
         phone: form.phone.trim(),
-        category: form.category,
         description: form.description?.trim() || undefined,
         address: form.address?.trim() || undefined,
       })
@@ -141,13 +131,6 @@ function BusinessForm({
           placeholder="Ej. 8095551234"
         />
       </div>
-
-      <Select
-        label="Categoría"
-        value={form.category}
-        onChange={(event) => setForm({ ...form, category: event.target.value })}
-        options={categoryOptions}
-      />
 
       <Input
         label="Dirección"

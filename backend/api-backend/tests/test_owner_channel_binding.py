@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import businesses as businesses_api
+from app.config import config
 from app.models import Business
 from app.services import owner_channel_service as owner_service
 from app.services import telegram_inbound
@@ -105,6 +106,7 @@ async def test_owner_telegram_activation_rejects_multiple_inherited_businesses(m
 @pytest.mark.asyncio
 async def test_telegram_owner_start_routes_before_customer_invite(monkeypatch):
     sent = []
+    monkeypatch.setattr(config, "OWNER_CHANNEL_ENABLED", True)
 
     monkeypatch.setattr(
         telegram_inbound.telegram_client,
@@ -134,6 +136,39 @@ async def test_telegram_owner_start_routes_before_customer_invite(monkeypatch):
 
     assert resp.get("status") == "ok"
     assert "Panel rápido" in sent[-1]
+
+
+@pytest.mark.asyncio
+async def test_telegram_owner_start_disabled_when_flag_off(monkeypatch):
+    """MVP (fase 1): con OWNER_CHANNEL_ENABLED=false el payload de owner no se activa."""
+    sent = []
+    monkeypatch.setattr(config, "OWNER_CHANNEL_ENABLED", False)
+
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "extract_message_from_webhook",
+        lambda _payload: {"from": "123", "text": "/start owner_TOKEN"},
+    )
+
+    async def fail_activate(**_kwargs):
+        raise AssertionError("owner activation must not run when flag is off")
+
+    async def fake_send_text_message(*_args, **kwargs):
+        sent.append(kwargs.get("message") or "")
+        return {"ok": True}
+
+    monkeypatch.setattr(telegram_inbound, "activate_owner_telegram_binding", fail_activate)
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "send_text_message",
+        fake_send_text_message,
+    )
+
+    resp = await telegram_inbound.process_telegram_update({})
+
+    assert resp.get("status") == "ok"
+    assert "desactivado" in sent[-1]
+    assert "panel web" in sent[-1]
 
 
 @pytest.mark.asyncio

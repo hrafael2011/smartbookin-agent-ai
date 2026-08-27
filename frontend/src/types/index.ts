@@ -75,7 +75,8 @@ export interface Business {
 export interface BusinessFormData {
   name: string
   phone: string
-  category: string
+  // Categoría/ubicación diferidas post-MVP (fase 1): el backend las tolera opcionales
+  category?: string
   description?: string
   address?: string
 }

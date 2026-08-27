@@ -3,6 +3,7 @@ import logging
 import re
 from typing import Optional
 
+from app.config import config
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.services.telegram_client import telegram_client
@@ -36,6 +37,16 @@ from app.utils.conversation_routing import (
 from app.core.orchestrator import run_conversation_turn
 
 logger = logging.getLogger(__name__)
+
+_OWNER_CHANNEL_DISABLED_MSG = (
+    "El canal del dueño en Telegram está desactivado por ahora. "
+    "Gestioná tu negocio desde el panel web."
+)
+
+
+async def _send_owner_channel_disabled(chat_id: str) -> None:
+    await telegram_client.send_text_message(chat_id=chat_id, message=_OWNER_CHANNEL_DISABLED_MSG)
+
 
 async def _reply_invalid_invite_attempt(chat_id: str, telegram_user_id: str) -> None:
     from app.services.rate_limit_async import allow_telegram_invite_fail
@@ -216,6 +227,9 @@ async def process_telegram_update(payload: dict) -> dict:
             arg = parts[1].strip() if len(parts) > 1 else ""
             if arg:
                 if is_owner_start_payload(arg):
+                    if not config.OWNER_CHANNEL_ENABLED:
+                        await _send_owner_channel_disabled(chat_id)
+                        return {"status": "ok"}
                     result = await activate_owner_telegram_binding(
                         payload=arg,
                         telegram_user_id=telegram_user_id,
@@ -238,7 +252,9 @@ async def process_telegram_update(payload: dict) -> dict:
                     await _send_welcome_for_business(existing_bid, chat_id)
                 else:
                     owner_binding = await get_owner_binding_by_telegram_user_id(telegram_user_id)
-                    if owner_binding:
+                    if owner_binding and not config.OWNER_CHANNEL_ENABLED:
+                        await _send_owner_channel_disabled(chat_id)
+                    elif owner_binding:
                         _o_key = owner_user_key(telegram_user_id)
                         _o_bid = int(owner_binding["business_id"])
                         await conversation_manager.update_context(
@@ -261,6 +277,9 @@ async def process_telegram_update(payload: dict) -> dict:
 
         # ── /panel: explicit owner panel access (for owners who also have a customer binding) ──
         if cmd == "/panel":
+            if not config.OWNER_CHANNEL_ENABLED:
+                await _send_owner_channel_disabled(chat_id)
+                return {"status": "ok"}
             owner_binding = await get_owner_binding_by_telegram_user_id(telegram_user_id)
             if owner_binding:
                 _o_key = owner_user_key(telegram_user_id)
@@ -372,8 +391,11 @@ async def process_telegram_update(payload: dict) -> dict:
             await telegram_client.send_text_message(chat_id=chat_id, message=response_text)
             return {"status": "ok"}
 
-        # ── No customer binding: owner routing ──
+        # ── No customer binding: owner routing (diferida si el flag MVP la desactiva) ──
         owner_binding = await get_owner_binding_by_telegram_user_id(telegram_user_id)
+        if owner_binding and not config.OWNER_CHANNEL_ENABLED:
+            await _send_owner_channel_disabled(chat_id)
+            return {"status": "ok"}
         if owner_binding:
             business_id = int(owner_binding["business_id"])
             user_key = owner_user_key(telegram_user_id)
@@ -415,7 +437,7 @@ async def process_telegram_update(payload: dict) -> dict:
                 return {"status": "ok"}
             await _reply_invalid_invite_attempt(chat_id, telegram_user_id)
             return {"status": "ok"}
-        if looks_like_owner_command(candidate):
+        if config.OWNER_CHANNEL_ENABLED and looks_like_owner_command(candidate):
             await telegram_client.send_text_message(
                 chat_id=chat_id,
                 message=(

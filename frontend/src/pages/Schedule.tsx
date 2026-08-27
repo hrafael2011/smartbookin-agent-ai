@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Clock, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { CalendarDays, Clock, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input } from '@/components/ui';
 import { scheduleAPI } from '@/services/api';
@@ -214,19 +214,8 @@ export function Schedule() {
     }
   };
 
-  const handleRestoreException = async (exceptionId: number) => {
-    setExceptionActionId(exceptionId);
-    try {
-      await scheduleAPI.restoreException(exceptionId);
-      await loadExceptions();
-      toast.success('Excepción restaurada');
-    } catch (error: any) {
-      console.error('Error restoring schedule exception:', error);
-      toast.error(error?.response?.data?.detail || 'No se pudo restaurar la excepción');
-    } finally {
-      setExceptionActionId(null);
-    }
-  };
+  // Restore de excepciones eliminado post-MVP (fase 1): el endpoint ya no existe,
+  // el soft-delete de la columna se queda. Las archivadas quedan visibles sin acción.
 
   const formatExceptionDate = (value: string) =>
     new Date(value + 'T00:00:00').toLocaleDateString('es-DO', {
@@ -454,17 +443,7 @@ export function Schedule() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {item.deleted_at ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRestoreException(item.id)}
-                        isLoading={exceptionActionId === item.id}
-                      >
-                        <RotateCcw className="h-4 w-4 mr-1" />
-                        Restaurar
-                      </Button>
-                    ) : (
+                    {!item.deleted_at && (
                       <Button
                         variant="outline"
                         size="sm"

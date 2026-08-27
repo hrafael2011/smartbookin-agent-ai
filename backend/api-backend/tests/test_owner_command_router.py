@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.config import config
 from app.services import telegram_inbound
 from app.services.owner_command_router import (
     OwnerRouteDecision,
@@ -296,6 +297,7 @@ async def test_execute_owner_route_back_from_detail_returns_previous_agenda(monk
 async def test_telegram_owner_without_customer_binding_routes_to_owner_panel(monkeypatch):
     """Owner with NO customer binding → owner panel runs (customer check is skipped)."""
     sent = []
+    monkeypatch.setattr(config, "OWNER_CHANNEL_ENABLED", True)
 
     monkeypatch.setattr(
         telegram_inbound.telegram_client,
@@ -408,6 +410,7 @@ async def test_telegram_dual_bound_user_routes_to_customer_not_owner(monkeypatch
 @pytest.mark.asyncio
 async def test_telegram_unbound_owner_command_gets_activation_boundary(monkeypatch):
     sent = []
+    monkeypatch.setattr(config, "OWNER_CHANNEL_ENABLED", True)
 
     monkeypatch.setattr(
         telegram_inbound.telegram_client,

@@ -64,7 +64,7 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
-              <Route path="/test-ui" element={<TestUI />} />
+              {import.meta.env.DEV && <Route path="/test-ui" element={<TestUI />} />}
 
               {/* Protected Routes */}
               <Route

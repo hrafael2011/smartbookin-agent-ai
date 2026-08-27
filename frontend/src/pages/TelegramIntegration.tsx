@@ -10,7 +10,6 @@ import {
   KeyRound,
   Loader2,
   MessageCircle,
-  RefreshCw,
   Send,
   ShieldCheck,
   Unlink,
@@ -38,15 +37,8 @@ export default function TelegramIntegration() {
     enabled: !!businessId,
   })
 
-  const rotate = useMutation({
-    mutationFn: () => telegramAPI.rotateInvite(businessId!),
-    onSuccess: (data) => {
-      qc.setQueryData(['telegram-activation', businessId], data)
-      toast.success('Se generó un nuevo código. Los enlaces anteriores dejan de valer.')
-    },
-    onError: () => toast.error('No se pudo rotar el código'),
-  })
-
+  // Rotación de invite diferida post-MVP (fase 1): el control se ocultó de la UI;
+  // el endpoint /rotate-invite queda en el backend por si se reactiva en v1.1.
   const unlinkCustomers = useMutation({
     mutationFn: () => telegramAPI.unlinkBindings(businessId!),
     onSuccess: (data) => {
@@ -214,19 +206,6 @@ export default function TelegramIntegration() {
                 <Copy className="h-4 w-4" />
                 Copiar invitación
               </Button>
-              <button
-                type="button"
-                disabled={rotate.isPending}
-                onClick={() => rotate.mutate()}
-                className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg border border-border hover:bg-muted disabled:opacity-50"
-              >
-                {rotate.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-                Regenerar código
-              </button>
               <Button
                 type="button"
                 size="sm"

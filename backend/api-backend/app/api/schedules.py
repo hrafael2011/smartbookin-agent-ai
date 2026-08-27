@@ -17,7 +17,6 @@ from app.models import (
 from app.schemas import (
     ScheduleExceptionCreate,
     ScheduleExceptionOut,
-    ScheduleExceptionRestore,
     ScheduleExceptionUpdate,
     ScheduleRuleCreate,
     ScheduleRuleOut,
@@ -371,36 +370,3 @@ async def archive_schedule_exception(
     return None
 
 
-@router.post("/schedule-exceptions/{exception_id}/restore", response_model=ScheduleExceptionOut)
-async def restore_schedule_exception(
-    exception_id: int,
-    _payload: Optional[ScheduleExceptionRestore] = None,
-    db: AsyncSession = Depends(get_db),
-    current_owner: Owner = Depends(get_current_owner),
-):
-    result = await db.execute(
-        select(ScheduleException).filter(ScheduleException.id == exception_id)
-    )
-    schedule_exception = result.scalars().first()
-    if not schedule_exception:
-        raise HTTPException(status_code=404, detail="Schedule exception not found")
-
-    await _get_owned_business(schedule_exception.business_id, db, current_owner)
-
-    if schedule_exception.deleted_at is not None:
-        await _assert_no_exception_overlap(
-            db=db,
-            business_id=schedule_exception.business_id,
-            exception_date=schedule_exception.date,
-            all_day=schedule_exception.all_day,
-            start_time=schedule_exception.start_time,
-            end_time=schedule_exception.end_time,
-            exclude_exception_id=schedule_exception.id,
-        )
-        schedule_exception.deleted_at = None
-        schedule_exception.deleted_by = None
-        schedule_exception.updated_at = datetime.now(timezone.utc)
-        await db.commit()
-        await db.refresh(schedule_exception)
-
-    return schedule_exception
