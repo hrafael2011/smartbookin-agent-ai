@@ -78,12 +78,12 @@ cd backend/api-backend && ./venv/bin/alembic upgrade head
 
 ## Fase 2 — Frontend → Vercel (~medio día)
 
-- [ ] Importar `frontend/` en Vercel (ya hay config en `.vercel/`): build = `npm run build`, output = `dist`
-- [ ] Configurar env `VITE_API_URL` apuntando a la URL del backend (en Fase 4 pasa a ser la de Railway; mientras, puede apuntar al VPS actual o quedar vacío con proxy local)
-- [ ] Verificar deploy: panel carga, login funciona contra el backend actual
-- [ ] Limpiar `docker-compose.yml`: eliminar servicios `nginx`, `frontend-build`, volúmenes `webroot`, `staticfiles`
-- [ ] Actualizar `ngrok` en el compose de dev: apuntar a `http://api-backend:8000` (antes iba a `nginx:80`)
-- [ ] Actualizar `scripts/telegram-webhook-sync.sh` si referencia el puerto 8080/nginx
+- [ ] Importar `frontend/` en Vercel (ya hay config en `.vercel/`): build = `npm run build`, output = `dist` *(diferido: falta URL de backend y login de Vercel)*
+- [ ] Configurar env `VITE_API_URL` apuntando a la URL del backend (en Fase 4 pasa a ser la de Railway; mientras, puede apuntar al VPS actual o quedar vacío con proxy local) *(diferido con el deploy)*
+- [ ] Verificar deploy: panel carga, login funciona contra el backend actual *(diferido)*
+- [x] Limpiar `docker-compose.yml`: eliminar servicios `nginx`, `frontend-build`, volúmenes `webroot`, `staticfiles` (commit `e935414`)
+- [x] Actualizar `ngrok` en el compose de dev: apuntar a `http://api-backend:8000` (antes iba a `nginx:80`)
+- [x] Actualizar `scripts/telegram-webhook-sync.sh` si referencia el puerto 8080/nginx (no lo referenciaba; `dev-stack-with-ngrok.sh` comentario actualizado)
 
 **Verificación:** `vercel deploy` exitoso · navegación del panel completa · compose de dev (`api-backend` + `postgres` + `ngrok`) sigue funcionando local.
 
