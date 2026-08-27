@@ -699,26 +699,17 @@ export const appointmentsAPI = {
   },
 
   getAvailability: async (params: AvailabilityParams): Promise<AvailabilityResponse> => {
-    const baseDate = params.date
-    return {
-      date: baseDate,
-      service_id: params.service_id,
-      service_name: 'Servicio',
-      available_slots: [
-        {
-          start_time: '09:00 AM',
-          start_datetime: baseDate + 'T09:00:00',
-          end_datetime: baseDate + 'T09:30:00',
-          is_preferred: !params.preferred_time || params.preferred_time.startsWith('09'),
+    const response = await api.get<AvailabilityResponse>(
+      `/businesses/${params.business_id}/availability`,
+      {
+        params: {
+          service_id: params.service_id,
+          date: params.date,
+          preferred_time: params.preferred_time,
         },
-        {
-          start_time: '02:00 PM',
-          start_datetime: baseDate + 'T14:00:00',
-          end_datetime: baseDate + 'T14:30:00',
-          is_preferred: !!params.preferred_time && params.preferred_time.startsWith('14'),
-        },
-      ],
-    }
+      }
+    )
+    return response.data
   },
 }
 
@@ -873,6 +864,12 @@ export const telegramAPI = {
     )
     return response.data
   },
+  unlinkBindings: async (businessId: number): Promise<{ unlinked_count: number }> => {
+    const response = await api.delete<{ unlinked_count: number }>(
+      '/businesses/' + businessId + '/telegram/bindings'
+    )
+    return response.data
+  },
 }
 
 export const ownerTelegramAPI = {
@@ -881,6 +878,9 @@ export const ownerTelegramAPI = {
       '/businesses/' + businessId + '/owner-telegram'
     )
     return response.data
+  },
+  unlink: async (businessId: number): Promise<void> => {
+    await api.delete('/businesses/' + businessId + '/owner-telegram')
   },
 }
 

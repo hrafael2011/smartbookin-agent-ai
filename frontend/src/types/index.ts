@@ -324,6 +324,7 @@ export interface TelegramActivation {
   invite_token: string
   bot_username: string
   has_first_contact: boolean
+  active_binding_count: number
 }
 
 export interface OwnerTelegramActivation {

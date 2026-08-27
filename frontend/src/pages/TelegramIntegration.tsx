@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Send,
   ShieldCheck,
+  Unlink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -44,6 +45,28 @@ export default function TelegramIntegration() {
       toast.success('Se generó un nuevo código. Los enlaces anteriores dejan de valer.')
     },
     onError: () => toast.error('No se pudo rotar el código'),
+  })
+
+  const unlinkCustomers = useMutation({
+    mutationFn: () => telegramAPI.unlinkBindings(businessId!),
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ['telegram-activation', businessId] })
+      toast.success(
+        data.unlinked_count > 0
+          ? `Se desvincularon ${data.unlinked_count} cliente(s) de Telegram`
+          : 'No había clientes vinculados por Telegram'
+      )
+    },
+    onError: () => toast.error('No se pudieron desvincular los clientes'),
+  })
+
+  const unlinkOwner = useMutation({
+    mutationFn: () => ownerTelegramAPI.unlink(businessId!),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['owner-telegram-activation', businessId] })
+      toast.success('Dueño desvinculado de Telegram')
+    },
+    onError: () => toast.error('No se pudo desvincular el dueño'),
   })
 
   const copy = (text: string, label: string) => {
@@ -169,7 +192,7 @@ export default function TelegramIntegration() {
                 }
               >
                 {customerQuery.data.has_first_contact
-                  ? 'Ya hubo primer contacto por Telegram'
+                  ? `Clientes vinculados: ${customerQuery.data.active_binding_count || 0}`
                   : 'Aún no hubo primer contacto'}
               </span>
               {customerQuery.data.deep_link && (
@@ -204,6 +227,24 @@ export default function TelegramIntegration() {
                 )}
                 Regenerar código
               </button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={unlinkCustomers.isPending}
+                onClick={() => {
+                  if (window.confirm('¿Desvincular todos los clientes de Telegram para este negocio?')) {
+                    unlinkCustomers.mutate()
+                  }
+                }}
+              >
+                {unlinkCustomers.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Unlink className="h-4 w-4" />
+                )}
+                Desvincular clientes
+              </Button>
             </div>
           </div>
         )}
@@ -312,6 +353,24 @@ export default function TelegramIntegration() {
               >
                 <Copy className="h-4 w-4" />
                 Copiar acceso
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!ownerQuery.data.has_active_binding || unlinkOwner.isPending}
+                onClick={() => {
+                  if (window.confirm('¿Desvincular el canal de Telegram del dueño?')) {
+                    unlinkOwner.mutate()
+                  }
+                }}
+              >
+                {unlinkOwner.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Unlink className="h-4 w-4" />
+                )}
+                Desvincular dueño
               </Button>
             </div>
 
