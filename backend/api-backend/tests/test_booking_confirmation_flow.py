@@ -431,12 +431,6 @@ def test_session_resume_yes_restores_context(monkeypatch):
         monkeypatch.setattr(orch.conversation_manager, "update_context", fake_update)
         monkeypatch.setattr(orch.conversation_manager, "get_context", fake_get_context)
 
-        # ensure_coherent_context pass-through
-        from app.core import state_machine
-        async def ensure_coherent_context(_b, _k, ctx):
-            return ctx
-        monkeypatch.setattr(state_machine, "ensure_coherent_context", ensure_coherent_context)
-
         resp = await orch.run_conversation_turn(1, "tg:1", "sí")
 
         assert "continuamos" in resp.lower()
@@ -480,17 +474,10 @@ def test_session_resume_no_clears_context(monkeypatch):
         monkeypatch.setattr(orch.conversation_manager, "update_context", fake_update)
         monkeypatch.setattr(orch.conversation_manager, "get_context", fake_get_context)
 
-        # ensure_coherent_context pass-through
-        from app.core import state_machine
-
-        async def ensure_coherent_context(_b, _k, ctx):
-            return ctx
-
-        monkeypatch.setattr(state_machine, "ensure_coherent_context", ensure_coherent_context)
-
         resp = await orch.run_conversation_turn(1, "tg:1", "no")
 
         assert "cerramos esa consulta" in resp.lower()
+        assert "Podés elegir una opción" in resp
         assert captured.get("state") == "idle"
         assert captured.get("current_intent") is None
         assert captured.get("pending_data") == {}
