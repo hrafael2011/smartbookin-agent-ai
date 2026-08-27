@@ -5,7 +5,8 @@
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript)](https://www.typescriptlang.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql)](https://www.postgresql.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+**Licencia:** MIT
 
 **Sistema de agendamiento inteligente para negocios de citas** (barberías, salones de belleza, clínicas), con panel web administrativo y canales conversacionales por WhatsApp y Telegram.
 

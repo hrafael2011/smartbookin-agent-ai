@@ -190,6 +190,8 @@ async def deactivate_owner_telegram_binding(*, owner_id: int, business_id: int) 
             return False
         binding.is_active = False
         binding.channel_user_id = None
+        binding.activation_token = None
+        binding.activation_expires_at = None
         binding.activated_at = None
         binding.last_used_at = None
         await db.commit()
@@ -208,6 +210,8 @@ async def deactivate_owner_telegram_bindings_by_user(telegram_user_id: str) -> i
         for binding in bindings:
             binding.is_active = False
             binding.channel_user_id = None
+            binding.activation_token = None
+            binding.activation_expires_at = None
             binding.activated_at = None
             binding.last_used_at = None
         await db.commit()

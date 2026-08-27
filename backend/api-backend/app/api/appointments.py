@@ -60,7 +60,9 @@ async def get_availability_endpoint(
     if not result.scalars().first():
         raise HTTPException(status_code=404, detail="Business not found or unauthorized")
 
-    result = await db.execute(select(Service).filter(Service.id == service_id))
+    result = await db.execute(
+        select(Service).filter(Service.id == service_id, Service.business_id == business_id)
+    )
     service = result.scalars().first()
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
