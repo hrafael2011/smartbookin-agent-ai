@@ -18,6 +18,7 @@ from app.services.guided_menu_router import execute_guided_route, route_guided_m
 from app.services.idempotency import should_process_channel_event
 from app.services.owner_channel_service import (
     activate_owner_telegram_binding,
+    deactivate_owner_telegram_bindings_by_user,
     get_owner_binding_by_telegram_user_id,
     is_owner_start_payload,
 )
@@ -198,11 +199,13 @@ async def process_telegram_update(payload: dict) -> dict:
             user_key = tg_chat_key(chat_id)
             await conversation_manager.delete_all_contexts_for_phone_number(user_key)
             await clear_user_binding(telegram_user_id)
+            await deactivate_owner_telegram_bindings_by_user(telegram_user_id)
             await telegram_client.send_text_message(
                 chat_id=chat_id,
                 message=(
-                    "Listo. Enviá el <b>código</b> del negocio o abrí el enlace "
-                    "con el botón <b>Iniciar</b> que te compartieron."
+                    "Listo. Desvinculé este Telegram de cliente y dueño. "
+                    "Enviá el <b>código</b> del negocio o abrí el enlace con "
+                    "el botón <b>Iniciar</b> que te compartieron."
                 ),
             )
             return {"status": "ok"}

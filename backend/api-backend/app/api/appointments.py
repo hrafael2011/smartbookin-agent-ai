@@ -7,8 +7,9 @@ from sqlalchemy.future import select
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_owner
-from app.models import Appointment, Business, Owner
-from app.schemas import AppointmentCreate, AppointmentOut
+from app.models import Appointment, Business, Owner, Service
+from app.schemas import AppointmentCreate, AppointmentOut, AvailabilityResponse, AvailableSlot
+from app.services.db_service import get_availability
 
 router = APIRouter()
 
@@ -44,6 +45,46 @@ async def create_appointment(business_id: int, appointment_in: AppointmentCreate
     await db.commit()
     await db.refresh(new_appointment)
     return new_appointment
+
+
+@router.get("/{business_id}/availability", response_model=AvailabilityResponse)
+async def get_availability_endpoint(
+    business_id: int,
+    service_id: int = Query(...),
+    date: str = Query(...),
+    preferred_time: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_owner: Owner = Depends(get_current_owner),
+):
+    result = await db.execute(select(Business).filter(Business.id == business_id, Business.owner_id == current_owner.id))
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Business not found or unauthorized")
+
+    result = await db.execute(select(Service).filter(Service.id == service_id))
+    service = result.scalars().first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    avail = await get_availability(business_id, service_id, date, preferred_time)
+    slots = avail.get("available_slots", [])
+
+    mapped_slots = [
+        AvailableSlot(
+            start_time=s["start_time"],
+            start_datetime=s["start_datetime"],
+            end_datetime=s["end_datetime"],
+            is_preferred=s.get("is_preferred", False),
+        )
+        for s in slots
+    ]
+
+    return AvailabilityResponse(
+        date=date,
+        service_id=service_id,
+        service_name=service.name,
+        available_slots=mapped_slots,
+    )
+
 
 @router.get("/{business_id}/appointments", response_model=List[AppointmentOut])
 async def get_appointments(

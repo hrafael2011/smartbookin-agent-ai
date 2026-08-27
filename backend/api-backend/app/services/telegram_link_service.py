@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from app.core.database import AsyncSessionLocal
 from app.models import Business, TelegramUserBinding
 
@@ -119,8 +119,35 @@ async def get_telegram_activation_snapshot(business_id: int) -> Optional[dict]:
             await db.commit()
             await db.refresh(business)
         token = business.telegram_invite_token
+        bindings_result = await db.execute(
+            select(func.count(TelegramUserBinding.id)).filter(
+                TelegramUserBinding.business_id == business_id
+            )
+        )
+        binding_count = int(bindings_result.scalar_one() or 0)
         return {
             "invite_token": token,
             "has_first_contact": business.telegram_first_contact_at is not None,
             "first_contact_at": business.telegram_first_contact_at,
+            "active_binding_count": binding_count,
         }
+
+
+async def clear_business_telegram_bindings(business_id: int) -> int:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(func.count(TelegramUserBinding.id)).filter(
+                TelegramUserBinding.business_id == business_id
+            )
+        )
+        count = int(result.scalar_one() or 0)
+        await db.execute(
+            delete(TelegramUserBinding).where(TelegramUserBinding.business_id == business_id)
+        )
+        business = (
+            await db.execute(select(Business).filter(Business.id == business_id))
+        ).scalars().first()
+        if business:
+            business.telegram_first_contact_at = None
+        await db.commit()
+        return count

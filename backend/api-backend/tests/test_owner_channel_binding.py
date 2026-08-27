@@ -178,3 +178,58 @@ async def test_telegram_customer_start_still_uses_customer_invite(monkeypatch):
         "owner_activated": False,
         "welcome": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_telegram_switch_clears_customer_and_owner_bindings(monkeypatch):
+    calls = {
+        "context_key": None,
+        "customer_user_id": None,
+        "owner_user_id": None,
+        "message": "",
+    }
+
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "extract_message_from_webhook",
+        lambda _payload: {"from": "123", "text": "/cambiar"},
+    )
+
+    async def fake_delete_contexts(user_key):
+        calls["context_key"] = user_key
+
+    async def fake_clear_customer(user_id):
+        calls["customer_user_id"] = user_id
+
+    async def fake_clear_owner(user_id):
+        calls["owner_user_id"] = user_id
+        return 1
+
+    async def fake_send_text_message(*_args, **kwargs):
+        calls["message"] = kwargs.get("message") or ""
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        telegram_inbound.conversation_manager,
+        "delete_all_contexts_for_phone_number",
+        fake_delete_contexts,
+    )
+    monkeypatch.setattr(telegram_inbound, "clear_user_binding", fake_clear_customer)
+    monkeypatch.setattr(
+        telegram_inbound,
+        "deactivate_owner_telegram_bindings_by_user",
+        fake_clear_owner,
+    )
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "send_text_message",
+        fake_send_text_message,
+    )
+
+    resp = await telegram_inbound.process_telegram_update({})
+
+    assert resp.get("status") == "ok"
+    assert calls["context_key"] == "tg:123"
+    assert calls["customer_user_id"] == "123"
+    assert calls["owner_user_id"] == "123"
+    assert "cliente y dueño" in calls["message"]

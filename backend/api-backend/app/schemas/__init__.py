@@ -95,6 +95,11 @@ class TelegramActivationOut(BaseModel):
     invite_token: str
     bot_username: str
     has_first_contact: bool
+    active_binding_count: int = 0
+
+
+class TelegramUnlinkOut(BaseModel):
+    unlinked_count: int
 
 
 class OwnerTelegramActivationOut(BaseModel):
@@ -224,3 +229,16 @@ class AppointmentOut(AppointmentBase):
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+# --- Availability Schemas ---
+class AvailableSlot(BaseModel):
+    start_time: str
+    start_datetime: str
+    end_datetime: str
+    is_preferred: bool
+
+class AvailabilityResponse(BaseModel):
+    date: str
+    service_id: int
+    service_name: str
+    available_slots: list[AvailableSlot]

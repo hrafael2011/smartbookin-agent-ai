@@ -14,9 +14,17 @@ from app.schemas import (
     BusinessUpdate,
     OwnerTelegramActivationOut,
     TelegramActivationOut,
+    TelegramUnlinkOut,
 )
-from app.services.owner_channel_service import get_owner_telegram_activation_snapshot
-from app.services.telegram_link_service import get_telegram_activation_snapshot, rotate_invite_token
+from app.services.owner_channel_service import (
+    deactivate_owner_telegram_binding,
+    get_owner_telegram_activation_snapshot,
+)
+from app.services.telegram_link_service import (
+    clear_business_telegram_bindings,
+    get_telegram_activation_snapshot,
+    rotate_invite_token,
+)
 
 router = APIRouter()
 
@@ -95,6 +103,7 @@ async def get_telegram_activation(
         invite_token=token,
         bot_username=bot,
         has_first_contact=bool(snap.get("has_first_contact")),
+        active_binding_count=int(snap.get("active_binding_count") or 0),
     )
 
 
@@ -142,6 +151,41 @@ async def get_owner_telegram_activation(
     )
 
 
+@router.delete("/{business_id}/owner-telegram", status_code=status.HTTP_204_NO_CONTENT)
+async def unlink_owner_telegram(
+    business_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_owner: Owner = Depends(get_current_owner),
+):
+    result = await db.execute(
+        select(Business).filter(Business.id == business_id, Business.owner_id == current_owner.id)
+    )
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    await deactivate_owner_telegram_binding(
+        owner_id=current_owner.id,
+        business_id=business_id,
+    )
+    return None
+
+
+@router.delete("/{business_id}/telegram/bindings", response_model=TelegramUnlinkOut)
+async def unlink_customer_telegram_bindings(
+    business_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_owner: Owner = Depends(get_current_owner),
+):
+    result = await db.execute(
+        select(Business).filter(Business.id == business_id, Business.owner_id == current_owner.id)
+    )
+    if not result.scalars().first():
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    count = await clear_business_telegram_bindings(business_id)
+    return TelegramUnlinkOut(unlinked_count=count)
+
+
 @router.post("/{business_id}/telegram/rotate-invite", response_model=TelegramActivationOut)
 async def rotate_telegram_invite(
     business_id: int,
@@ -168,4 +212,5 @@ async def rotate_telegram_invite(
         invite_token=new_token,
         bot_username=bot,
         has_first_contact=bool(snap and snap.get("has_first_contact")),
+        active_binding_count=int((snap or {}).get("active_binding_count") or 0),
     )

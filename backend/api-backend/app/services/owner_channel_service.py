@@ -174,3 +174,41 @@ async def get_owner_binding_by_telegram_user_id(telegram_user_id: str) -> Option
             "business_name": business.name,
             "role": binding.role,
         }
+
+
+async def deactivate_owner_telegram_binding(*, owner_id: int, business_id: int) -> bool:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(OwnerChannelBinding).filter(
+                OwnerChannelBinding.owner_id == owner_id,
+                OwnerChannelBinding.business_id == business_id,
+                OwnerChannelBinding.channel == "telegram",
+            )
+        )
+        binding = result.scalars().first()
+        if not binding:
+            return False
+        binding.is_active = False
+        binding.channel_user_id = None
+        binding.activated_at = None
+        binding.last_used_at = None
+        await db.commit()
+        return True
+
+
+async def deactivate_owner_telegram_bindings_by_user(telegram_user_id: str) -> int:
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(OwnerChannelBinding).filter(
+                OwnerChannelBinding.channel == "telegram",
+                OwnerChannelBinding.channel_user_id == str(telegram_user_id),
+            )
+        )
+        bindings = result.scalars().all()
+        for binding in bindings:
+            binding.is_active = False
+            binding.channel_user_id = None
+            binding.activated_at = None
+            binding.last_used_at = None
+        await db.commit()
+        return len(bindings)
