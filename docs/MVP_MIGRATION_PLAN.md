@@ -65,7 +65,7 @@ cd backend/api-backend && ./venv/bin/alembic upgrade head
 | 1.2 | Waitlist con auto-oferta | Flag `WAITLIST_ENABLED=false` → cancelar solo cancela (paso 4 de `cancel_handler.py` se salta); no crear el job de expiración | `app/handlers/cancel_handler.py`, `app/services/background_tasks.py` |
 | 1.3 | Agenda diaria del owner (8:00) | No crear el job en el cron externo (el código queda) | `app/services/background_tasks.py` |
 | 1.4 | Verificación de email | Flag `REQUIRE_EMAIL_VERIFICATION=false` → registro activa la cuenta directamente; login no gatea | `app/api/auth.py` |
-| 1.5 | Rotación de invite / unlink de Telegram | Ocultar en UI (el bind único queda) | `frontend/src/pages/TelegramIntegration.tsx` |
+| 1.5 | Rotación de invite / unlink de Telegram | Ocultar **solo el control de rotate-invite** en UI. Los botones de unlink (agregados en Fase 0) se mantienen: desvincular es seguridad del dueño, no lujo | `frontend/src/pages/TelegramIntegration.tsx` |
 | 1.6 | Endpoint `restore` de excepciones | Eliminar el endpoint (el soft-delete de la columna se queda, inofensivo) | `app/api/schedules.py` |
 | 1.7 | Página TestUI en producción | Quitar la ruta `/test-ui` de producción (gatear por `import.meta.env.DEV` o eliminar del router) | `frontend/src/App.tsx` |
 | 1.8 | Categoría/ubicación en onboarding | Quitar campos del formulario (backend los tolera) | `frontend/src/pages/BusinessOnboarding.tsx` |
