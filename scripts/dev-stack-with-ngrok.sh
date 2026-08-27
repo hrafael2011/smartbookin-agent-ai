@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Levanta Postgres + API + front (Nginx) + contenedor ngrok y registra el webhook de Telegram.
+# Levanta Postgres + API + contenedor ngrok (frontend vive en Vercel desde MVP fase 2)
+# y registra el webhook de Telegram.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"

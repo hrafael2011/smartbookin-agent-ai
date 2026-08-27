@@ -36,50 +36,22 @@ services:
       retries: 30
     restart: unless-stopped
 
-  # Construye el frontend y deja dist/ en volumen compartido
-  frontend-build:
-    build: ./frontend
-    working_dir: /app
-    command: >
-      sh -c "rm -rf /var/www/app/dist &&
-             cp -r dist /var/www/app/dist"
-    volumes:
-      - webroot:/var/www/app
-    restart: "no"
-
-  nginx:
-    image: nginx:1.27-alpine
-    depends_on:
-      frontend-build:
-        condition: service_completed_successfully
-      api-backend:
-        condition: service_started
-    ports:
-      - "${NGINX_HOST_PORT:-8080}:80"
-    volumes:
-      - ./nginx_new_default.conf:/etc/nginx/conf.d/default.conf:ro
-      - webroot:/var/www/app
-      
-      
-    restart: unless-stopped
-
-  # Túnel HTTPS hacia Nginx (app + /api + /webhooks). Requiere token en .env: AUTO_TOKEN_NGROK
+  # Túnel HTTPS directo hacia el API (MVP fase 2: el frontend vive en Vercel,
+  # nginx/frontend-build se eliminaron). Requiere token en .env: AUTO_TOKEN_NGROK
   # Uso: docker compose --profile ngrok up -d
   # Luego: ./scripts/telegram-webhook-sync.sh
   ngrok:
     image: ngrok/ngrok:latest
     profiles: ["ngrok"]
     depends_on:
-      nginx:
+      api-backend:
         condition: service_started
     environment:
       NGROK_AUTHTOKEN: ${AUTO_TOKEN_NGROK:-}
-    command: ["http", "--log=stdout", "http://nginx:80"]
+    command: ["http", "--log=stdout", "http://api-backend:8000"]
     ports:
       - "4040:4040"
     restart: unless-stopped
 
 volumes:
   postgres_data:
-  webroot:
-  staticfiles:

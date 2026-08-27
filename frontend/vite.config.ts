@@ -5,9 +5,10 @@ import path from 'path'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  // Nginx del docker-compose (mismo origen relativo /api que en producción). Si usás otros puertos, definí VITE_DEV_PROXY_TARGET en frontend/.env
+  // MVP fase 2: sin nginx en el compose; el proxy de dev apunta directo a api-backend
+  // (mismo origen relativo /api que en producción). Si usás otro puerto, definí VITE_DEV_PROXY_TARGET en frontend/.env
   const proxyTarget =
-    env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:18080'
+    env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:8000'
 
   return {
     plugins: [react()],
