@@ -38,7 +38,7 @@
 - [x] T010 Mejorar mensaje de respuesta para `"out_of_domain"` en `execute_guided_route()`: explicar propósito del bot, incluir menú.
 - [x] T011 Modificar caso `"expired_flow"` en `execute_guided_route()`: si `pending_data` no vacío → preguntar "¿Continuamos donde estabas?" → guardar `state = "awaiting_session_resume"` con `pending_data` original en `context["resume_data"]`. Si `pending_data` vacío → comportamiento actual.
 - [x] T012 Manejar `awaiting_session_resume` en `app/core/orchestrator.py`: "sí" → restaurar `resume_data` como contexto; "no" → limpiar a `idle` + menú.
-- [ ] T013 [P] Tests: `test_expired_flow_with_pending_asks_resume`, `test_session_resume_yes_restores_context`, `test_session_resume_no_clears_context`.
+- [x] T013 [P] Tests: `test_expired_flow_with_pending_asks_resume`, `test_session_resume_yes_restores_context`, `test_session_resume_no_clears_context`.
 
 **Checkpoint**: Tests T013 pasan.
 

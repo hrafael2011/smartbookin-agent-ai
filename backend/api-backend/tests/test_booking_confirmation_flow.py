@@ -448,6 +448,59 @@ def test_session_resume_yes_restores_context(monkeypatch):
     asyncio.run(_run())
 
 
+def test_session_resume_no_clears_context(monkeypatch):
+    """awaiting_session_resume + 'no' → clears flow to idle and shows main menu."""
+    import asyncio
+    from app.core import orchestrator as orch
+
+    async def _run():
+        captured = {}
+
+        async def fake_save_msg(*_args, **_kwargs):
+            return None
+
+        async def fake_update(_bid, _key, payload):
+            captured.update(payload)
+
+        async def fake_get_context(_bid, _key):
+            return {
+                "state": "awaiting_session_resume",
+                "current_intent": None,
+                "customer_id": 7,
+                "customer_name": "Ana",
+                "pending_data": {},
+                "resume_data": {"service": "Corte", "date": "2026-06-10"},
+                "resume_intent": "book_appointment",
+                "resume_state": "awaiting_date",
+                "recent_messages": [],
+                "state_stack": [],
+            }
+
+        monkeypatch.setattr(orch.conversation_manager, "save_message", fake_save_msg)
+        monkeypatch.setattr(orch.conversation_manager, "update_context", fake_update)
+        monkeypatch.setattr(orch.conversation_manager, "get_context", fake_get_context)
+
+        # ensure_coherent_context pass-through
+        from app.core import state_machine
+
+        async def ensure_coherent_context(_b, _k, ctx):
+            return ctx
+
+        monkeypatch.setattr(state_machine, "ensure_coherent_context", ensure_coherent_context)
+
+        resp = await orch.run_conversation_turn(1, "tg:1", "no")
+
+        assert "cerramos esa consulta" in resp.lower()
+        assert captured.get("state") == "idle"
+        assert captured.get("current_intent") is None
+        assert captured.get("pending_data") == {}
+        assert captured.get("resume_data") is None
+        assert captured.get("resume_intent") is None
+        assert captured.get("resume_state") is None
+
+    asyncio.run(_run())
+
+
 # --- Tests spec 004 T017: state_stack back navigation ---
 
 def test_back_from_slot_selection_returns_awaiting_date(monkeypatch):

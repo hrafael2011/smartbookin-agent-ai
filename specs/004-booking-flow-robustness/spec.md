@@ -113,7 +113,7 @@ Cuando hay más de 8 slots disponibles, habilitar navegación por páginas. Las 
 
 ## Implementation Notes (v1 — 2026-05-05, verified 2026-08-27)
 
-All 39 tasks completed, except T013 (2 of 3 tests exist; `test_session_resume_no_clears_context` is missing — see `tasks.md`). Key behavioral differences from the original spec:
+All 39 tasks completed. Key behavioral differences from the original spec:
 
 ### Slot pagination
 - Page size: **6 slots per page** (keys 1–6 select slots; key 7 = previous page, key 8 = next page). Spec proposed 8 per page.
@@ -122,7 +122,7 @@ All 39 tasks completed, except T013 (2 of 3 tests exist; `test_session_resume_no
 ### Session resume
 - Expired flows with non-empty `pending_data` ask the user "¿Continuamos donde estabas?" instead of clearing immediately. Message is generic ("Tenías una consulta a medias…") — the spec example proposed naming the service ("Tenías una cita a medias para [servicio]…").
 - Additional context saved: `resume_data`, `resume_intent`, `resume_state`.
-- A "no" reply clears the flow and shows the main menu (implemented in `orchestrator.py`; no dedicated unit test).
+- A "no" reply clears the flow and shows the main menu (implemented in `orchestrator.py`; covered by `test_session_resume_no_clears_context`).
 
 ### State stack (back navigation)
 - `update_context()` auto-pushes the previous state on every state transition (except idle → anything). The push logic is inlined in `update_context()` rather than calling the standalone `push_state()` method (both enforce the same 10-level cap).
