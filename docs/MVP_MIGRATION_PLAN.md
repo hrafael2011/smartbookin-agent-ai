@@ -71,8 +71,8 @@ cd backend/api-backend && ./venv/bin/alembic upgrade head
 | 1.8 | Categoría/ubicación en onboarding | Quitar campos del formulario (backend los tolera) | `frontend/src/pages/BusinessOnboarding.tsx` |
 
 **Criterio de salida de la fase:**
-- [ ] 203 tests backend + 33 tests frontend en verde tras los cambios
-- [ ] Commit por separado: `feat(mvp): defer post-MVP features behind flags`
+- [x] 203 tests backend + 33 tests frontend en verde tras los cambios (215 backend actuales, commit `0a910f5`)
+- [x] Commit por separado: `feat(mvp): defer post-MVP features behind flags`
 
 ---
 
