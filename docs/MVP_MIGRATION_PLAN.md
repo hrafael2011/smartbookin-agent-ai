@@ -109,22 +109,23 @@ cd backend/api-backend && ./venv/bin/alembic upgrade head
 ## Fase 4 — Backend → Railway + cron + quitar Redis (~1–1.5 días)
 
 ### 4.1 Deploy del backend
-- [ ] Crear proyecto en Railway e importar el repo (root: `backend/api-backend`, Dockerfile existente)
-- [ ] Variables de entorno: `DATABASE_URL` (Neon), `OPENAI_API_KEY`, `META_WABA_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TIMEZONE=America/Santo_Domingo`, flags de la Fase 1, `DISABLE_USAGE_LIMITS` según corresponda
-- [ ] Comando de arranque: `uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1` (ajustar `entrypoint.sh`/Dockerfile si hace falta)
-- [ ] Health check: `GET /docs` y `GET /` responden en la URL de Railway
+- [x] Crear proyecto en Railway (`smartbooking-ai`, workspace `projects_bots`) y desplegar desde `backend/api-backend` (Dockerfile existente) — **URL: https://smartbooking-ai-production.up.railway.app**
+- [x] Variables de entorno seteadas: `DATABASE_URL` (Neon directa), `JWT_SECRET_KEY` (generada), `INTERNAL_CRON_TOKEN` (generado), `CRON_EXTERNAL=true`, `TIMEZONE=America/Santo_Domingo`, flags fase 1 en false, `DISABLE_USAGE_LIMITS=false`, `ALLOWED_ORIGINS`/`FRONTEND_BASE_URL` (vercel). **Pendiente del usuario (dashboard Railway)**: `OPENAI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`; Meta (`META_*`) se deja vacío por decisión del usuario (solo Telegram por ahora)
+- [x] Comando de arranque: el Dockerfile ya corre `alembic upgrade head && uvicorn --port $PORT` — verificado
+- [x] Health check: `GET /` → `{"status":"ok"}` y `GET /docs` → 200 en la URL de Railway
+- [x] NLU degrada sin `OPENAI_API_KEY` (commit `276b827`): la app arranca y responde con menú guiado hasta configurar la llave
 
 ### 4.2 Cron externo (sustituye APScheduler en proceso)
-- [ ] Agregar endpoint interno protegido por `INTERNAL_CRON_TOKEN`:
-  - `POST /internal/jobs/reminders` → `process_appointment_reminders()`
-  - `POST /internal/jobs/waitlist-expiration` → `process_waitlist_expiration()` (solo si 1.2 activa)
+- [x] Endpoints internos protegidos por `INTERNAL_CRON_TOKEN` (Bearer):
+  - `POST /internal/jobs/reminders` → `process_appointment_reminders()` ✅ verificado (401 sin token, 200 con token)
+  - `POST /internal/jobs/waitlist-expiration` → `process_waitlist_expiration()` (solo si 1.2 activa; responde 404 si no)
   - (`generate_daily_agenda` queda fuera por 1.3)
-- [ ] Crear servicios cron en Railway (o GitHub Actions): reminders cada ~10 min
-- [ ] Desactivar `AsyncIOScheduler` en arranque cuando `CRON_EXTERNAL=true` (`app/core/scheduler.py`)
+- [ ] Crear cron externo que llame reminders cada ~10 min: **Railway dashboard (Cron Job) o GitHub Actions** — el CLI de Railway no crea crons; pendiente de decidir con el usuario
+- [x] Desactivar `AsyncIOScheduler` en arranque cuando `CRON_EXTERNAL=true` (`main.py` lifespan)
 
 ### 4.3 Quitar Redis
-- [ ] Simplificar `app/services/rate_limit_async.py`: solo camino en memoria (el fallback ya existe)
-- [ ] Quitar `redis` de `requirements.txt` y `REDIS_URL` de envs/`.env.example`
+- [x] Simplificar `app/services/rate_limit_async.py`: solo camino memoria/archivo (fallback `RATE_LIMIT_STATE_FILE`)
+- [x] Quitar `redis` de `requirements.txt` y `REDIS_URL` de envs/`.env.example`/config
 
 ### 4.4 Reconfigurar webhooks
 - [ ] WhatsApp: actualizar la URL del webhook en la app de Meta → `https://<railway>/webhooks/whatsapp` (verificar token `META_VERIFY_TOKEN`)
