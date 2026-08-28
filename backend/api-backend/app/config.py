@@ -34,10 +34,7 @@ class Config:
     OPENAI_MAX_TOKENS = 500
     OPENAI_TIMEOUT = 10  # segundos
 
-    # Redis
-    REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-    REDIS_PORT = _int_env("REDIS_PORT", 6379)
-    REDIS_DB = _int_env("REDIS_DB", 0)
+    # Redis eliminado en fase 4 del MVP: los rate limits viven en memoria/archivo
     CONVERSATION_TTL = 3600  # 1 hora en segundos
 
     # Django API
@@ -94,9 +91,6 @@ class Config:
         "yes",
     )
 
-    # Redis (opcional: rate limits compartidos entre workers)
-    REDIS_URL = os.getenv("REDIS_URL", "").strip()
-
     # SMTP (verificación de correo)
     SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
     SMTP_PORT = _int_env("SMTP_PORT", 587)
@@ -107,6 +101,14 @@ class Config:
 
     # URL del front para enlaces en correos (sin barra final)
     FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
+
+    # ── Cron externo (fase 4 MVP) ──
+    # true = sin APScheduler en proceso; los jobs los dispara el cron externo (Railway)
+    CRON_EXTERNAL = _bool_env("CRON_EXTERNAL", False)
+    # Token para los endpoints internos /internal/jobs/* (Bearer)
+    INTERNAL_CRON_TOKEN = os.getenv("INTERNAL_CRON_TOKEN", "").strip()
+    # Zona horaria del negocio (scheduler y fechas locales)
+    TIMEZONE = os.getenv("TIMEZONE", "America/Santo_Domingo")
 
 
 config = Config()

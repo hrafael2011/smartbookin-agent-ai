@@ -18,6 +18,7 @@ from app.api import (
     appointments,
     schedules,
     dashboard,
+    internal_jobs,
 )
 from app.services import db_service, whatsapp_client, conversation_manager
 from app.services.background_tasks import (
@@ -46,9 +47,16 @@ if config.SENTRY_DSN:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if config.CRON_EXTERNAL:
+        # Fase 4 MVP: el cron externo (Railway) dispara /internal/jobs/*;
+        # el APScheduler en proceso queda desactivado.
+        logger.info("CRON_EXTERNAL=true: APScheduler desactivado, cron externo activo")
+        yield
+        return
+
     # Startup: Start APScheduler and add jobs
     start_scheduler()
-    
+
     # Run reminders every 30 minutes
     scheduler.add_job(process_appointment_reminders, 'interval', minutes=30, id='reminders_job', replace_existing=True)
 
@@ -60,7 +68,7 @@ async def lifespan(app: FastAPI):
     # background_tasks.py pero el job no se registra (cron externo tampoco lo usa)
 
     yield
-    
+
     # Shutdown: Stop scheduler
     shutdown_scheduler()
 
@@ -132,6 +140,7 @@ app.include_router(customers.router, prefix="/api/businesses", tags=["Customers"
 app.include_router(appointments.router, prefix="/api/businesses", tags=["Appointments"])
 app.include_router(schedules.router, prefix="/api", tags=["Schedules"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(internal_jobs.router)
 
 
 @app.get("/webhooks/whatsapp/verify")

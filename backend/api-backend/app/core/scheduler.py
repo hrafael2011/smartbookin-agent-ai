@@ -1,6 +1,7 @@
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from app.config import config
 from app.core.database import DATABASE_URL
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ jobstores = {
     'default': SQLAlchemyJobStore(url=SYNC_DATABASE_URL)
 }
 
-scheduler = AsyncIOScheduler(jobstores=jobstores, timezone="America/Santo_Domingo")
+scheduler = AsyncIOScheduler(jobstores=jobstores, timezone=config.TIMEZONE)
 
 def start_scheduler():
     if not scheduler.running:
