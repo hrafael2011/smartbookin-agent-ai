@@ -23,7 +23,9 @@ class NLUEngine:
     """Motor de NLU usando GPT-4o-mini"""
 
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+        # Sin OPENAI_API_KEY la app arranca igual (fase 4 MVP): el NLU queda
+        # desactivado y process() devuelve el menú guiado hasta que haya llave.
+        self.client = AsyncOpenAI(api_key=config.OPENAI_API_KEY) if config.OPENAI_API_KEY else None
         self.model = config.OPENAI_MODEL
         self.temperature = config.OPENAI_TEMPERATURE
         self.max_tokens = config.OPENAI_MAX_TOKENS
@@ -103,6 +105,19 @@ class NLUEngine:
         Clasificación sin texto al usuario para intents de acción; segunda llamada solo
         para greeting / general_question / clarification_needed.
         """
+        if self.client is None:
+            return {
+                "intent": "clarification_needed",
+                "confidence": 0.0,
+                "entities": {},
+                "missing": [],
+                "response_text": (
+                    "Por ahora solo uso el menú guiado. Escribí «menu» para ver las "
+                    "opciones, o un número del 1 al 6."
+                ),
+                "raw_understanding": "NLU desactivado: OPENAI_API_KEY no configurada",
+            }
+
         try:
             business_info = await db_service.get_business(business_id)
             bname = business_info.get("name") or "Negocio"
@@ -257,6 +272,13 @@ class NLUEngine:
         Returns:
             Mensaje formateado para el usuario
         """
+        if self.client is None:
+            # Sin OPENAI_API_KEY: responder con los horarios en texto plano
+            lines = [f"Horarios disponibles para {service_name} el {date}:"]
+            for s in slots[:3]:
+                lines.append(f"• {s.get('start_time')}")
+            return "\n".join(lines)
+
         if not slots:
             return f"Lo siento, no tengo disponibilidad para {service_name} ese día. ¿Te gustaría otro día?"
 
