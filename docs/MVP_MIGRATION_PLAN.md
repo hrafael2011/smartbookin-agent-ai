@@ -91,17 +91,18 @@ cd backend/api-backend && ./venv/bin/alembic upgrade head
 
 ## Fase 3 — Base de datos → Neon (~1 día)
 
-- [ ] Crear proyecto free en [Neon](https://neon.tech) (0.5 GB, autosuspend 5 min, sin tarjeta)
-- [ ] Dump del Postgres local:
+- [x] Crear proyecto free en [Neon](https://neon.tech) (0.5 GB, autosuspend 5 min, sin tarjeta)
+- [x] Dump del Postgres local:
   ```bash
-  docker compose exec postgres pg_dump -U postgres smartbooking > /tmp/smartbooking_dump.sql
+  docker compose exec postgres pg_dump -U postgres --no-owner --no-privileges smartbooking > /tmp/smartbooking_dump.sql
   ```
-- [ ] Restaurar en Neon: `psql "$NEON_DATABASE_URL" < /tmp/smartbooking_dump.sql`
-- [ ] Ejecutar migraciones pendientes contra Neon: `alembic upgrade head` con `DATABASE_URL` de Neon
-- [ ] Verificar con la suite completa: 203 tests verdes
-- [ ] Cambiar `DATABASE_URL` en el backend desplegado (Fase 4) y probar lectura/escritura real (crear una cita de prueba, borrarla)
+  *(el dump sin `--no-owner` falla en Neon: no existe el rol `postgres`)*
+- [x] Restaurar en Neon: `psql "$NEON_DATABASE_URL" < /tmp/smartbooking_dump.sql` — **usar el endpoint directo, NO el `-pooler`**: el pooler de Neon entrega conexiones con `search_path` vacío y toda query sin esquema falla (`relation ... does not exist`); `ALTER DATABASE SET search_path` no lo corrige porque el pooler lo fuerza por conexión. Endpoint directo = sin `-pooler` en el host (commit `31660fb` arregla `sslmode`/`channel_binding` en asyncpg)
+- [x] Ejecutar migraciones pendientes contra Neon: `alembic upgrade head` con `DATABASE_URL` de Neon (quedó en head `b2c3d4e5f6a7`; `buffer_minutes` y `uq_appointment_service_datetime` verificados en Neon)
+- [x] Verificar con la suite completa: 215 tests verdes contra local **y** contra Neon
+- [ ] Cambiar `DATABASE_URL` en el backend desplegado (Fase 4) y probar lectura/escritura real (crear una cita de prueba, borrarla) — **usar la URL directa (sin `-pooler`)**
 
-**Verificación:** `pg_dump` de Neon idéntico en conteo de filas de tablas clave (`appointments`, `services`, `customers`) · primera query tras 5 min de inactividad responde (wake).
+**Verificación:** `pg_dump` de Neon idéntico en conteo de filas de tablas clave (`appointments` 2, `services` 5, `customers` 2, `businesses` 2, `owners` 4) ✅ · primera query tras 5 min de inactividad responde (wake) — pendiente, se prueba en Fase 4/5.
 
 ---
 
