@@ -194,3 +194,50 @@ async def test_booking_confirmation_success_returns_main_menu_keyboard(monkeypat
     assert captured["created"]["customer"] == 1
     assert reply.keyboard == telegram_ui.main_menu_keyboard()
     assert captured.get("marked") is True
+
+
+def test_resolve_service_choice_empty_text_returns_empty():
+    services = [{"id": 1, "name": "Corte", "price": 10, "duration_minutes": 30}]
+    assert booking_handler._resolve_service_choice(services, "") == ""
+    assert booking_handler._resolve_service_choice(services, "   ") == ""
+
+
+def test_resolve_service_choice_still_matches_by_name_and_number():
+    services = [
+        {"id": 1, "name": "Corte", "price": 10, "duration_minutes": 30},
+        {"id": 2, "name": "Barba", "price": 8, "duration_minutes": 15},
+    ]
+    assert booking_handler._resolve_service_choice(services, "barba") == "Barba"
+    assert booking_handler._resolve_service_choice(services, "2") == "Barba"
+
+
+@pytest.mark.asyncio
+async def test_booking_without_service_and_empty_text_asks_service(monkeypatch):
+    """time_* callback sin servicio en pending → pregunta servicio, no confirma el primero."""
+    captured = {}
+
+    async def fake_services(_bid):
+        return [
+            {"id": 1, "name": "Corte", "price": 10, "duration_minutes": 30},
+            {"id": 2, "name": "Barba", "price": 8, "duration_minutes": 15},
+        ]
+
+    async def fake_update(_b, _k, payload):
+        captured["update"] = payload
+
+    monkeypatch.setattr(booking_handler.db_service, "get_business_services", fake_services)
+    monkeypatch.setattr(booking_handler.conversation_manager, "update_context", fake_update)
+
+    nlu = {"_raw_user_text": "", "entities": {}, "missing": []}
+    context = {
+        "business_id": 1,
+        "phone_number": "tg:1",
+        "customer_id": 1,
+        "customer_name": "Ana",
+        "pending_data": {"date": "2026-08-28", "selected_slot": _slot(hour=9), "service_id": 1},
+    }
+    reply = await booking_handler.handle_book_appointment(nlu, context)
+
+    assert "¿qué servicio" in reply
+    assert [b["callback_data"] for b in reply.keyboard[0]] == ["service_1", "service_2"]
+    assert captured["update"]["state"] == "awaiting_service"

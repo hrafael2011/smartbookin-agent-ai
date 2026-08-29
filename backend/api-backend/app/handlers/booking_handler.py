@@ -72,6 +72,8 @@ def _service_menu_text(services: List[Dict]) -> str:
 
 def _resolve_service_choice(services: List[Dict], raw_text: str, entity_service: str = "") -> str:
     txt = str(raw_text or "").strip().lower()
+    if not txt:
+        return ""
     if txt.isdigit():
         idx = int(txt) - 1
         if 0 <= idx < len(services):
