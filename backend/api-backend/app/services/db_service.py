@@ -222,7 +222,7 @@ async def get_availability(business_id: int, service_id: int, date: str, preferr
             buffer_minutes=getattr(service, "buffer_minutes", 0) or 0,
             preferred_time=preferred_time,
         )
-        return {"available_slots": slots}
+        return {"available_slots": _filter_past_slots(slots)}
 
 async def get_next_available_days(
     business_id: int,
@@ -312,6 +312,22 @@ def _upcoming_now() -> datetime:
     (en Railway/UTC eso excluía las citas del día desde 4 horas antes de ocurrir).
     """
     return datetime.now(DEFAULT_OPERATIONAL_TZ).replace(tzinfo=timezone.utc)
+
+
+def _filter_past_slots(slots: List[Dict], now: Optional[datetime] = None) -> List[Dict]:
+    """Excluye slots cuya hora (wall-clock estampado como UTC) ya pasó."""
+    now = now or _upcoming_now()
+    kept = []
+    for slot in slots:
+        raw = str(slot.get("start_datetime") or "")
+        try:
+            start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            kept.append(slot)
+            continue
+        if start > now:
+            kept.append(slot)
+    return kept
 
 
 async def get_customer_appointments(customer_id: int, upcoming: bool = False) -> List[Dict]:
