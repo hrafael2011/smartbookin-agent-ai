@@ -86,18 +86,18 @@ async def handle_check_appointment(nlu_result: Dict, context: Dict) -> BotReply:
             lines.append(f"... y {len(appointments) - 5} citas más")
             lines.append("")
 
-        # Acciones directas sobre las primeras citas: cambiar o cancelar
+        # Acciones directas sobre las primeras citas: una fila por cita visible
         visible = appointments[:5]
-        if len(visible) == 1:
-            action_row = [
+        action_rows = []
+        for appt in visible:
+            label = telegram_ui.short_appointment_label(appt)
+            action_rows.append(
                 [
-                    {"text": "✏️ Cambiar cita", "callback_data": f"modify_appt_{visible[0]['id']}"},
-                    {"text": "❌ Cancelar cita", "callback_data": f"cancel_appt_{visible[0]['id']}"},
+                    {"text": f"✏️ {label}", "callback_data": f"modify_appt_{appt['id']}"},
+                    {"text": f"❌ {label}", "callback_data": f"cancel_appt_{appt['id']}"},
                 ]
-            ]
-        else:
-            action_row = []
-        return BotReply("\n".join(lines), keyboard=telegram_ui.with_footer(action_row))
+            )
+        return BotReply("\n".join(lines), keyboard=telegram_ui.with_footer(action_rows))
 
     except Exception as e:
         return BotReply(

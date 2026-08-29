@@ -192,3 +192,19 @@ async def test_check_with_appointments_lists_and_action_buttons(monkeypatch):
     assert "Cita 1" in reply
     assert [b["callback_data"] for b in reply.keyboard[0]] == ["modify_appt_11", "cancel_appt_11"]
     assert [b["callback_data"] for b in reply.keyboard[-1]] == FOOTER
+
+
+@pytest.mark.asyncio
+async def test_check_with_multiple_appointments_has_per_appointment_buttons(monkeypatch):
+    async def fake_get(*_a, **_k):
+        return [_appt(11, "2026-09-05T09:00:00+00:00", "Corte"), _appt(12, "2026-09-06T10:00:00+00:00", "Barba")]
+
+    monkeypatch.setattr(check.db_service, "get_customer_appointments", fake_get)
+
+    reply = await check.handle_check_appointment({}, _check_context())
+
+    assert isinstance(reply, BotReply)
+    assert [b["callback_data"] for b in reply.keyboard[0]] == ["modify_appt_11", "cancel_appt_11"]
+    assert [b["callback_data"] for b in reply.keyboard[1]] == ["modify_appt_12", "cancel_appt_12"]
+    assert [b["callback_data"] for b in reply.keyboard[-1]] == FOOTER
+    assert "Solo dime cuál" not in reply

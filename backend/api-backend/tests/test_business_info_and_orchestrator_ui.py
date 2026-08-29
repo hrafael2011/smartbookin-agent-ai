@@ -35,7 +35,7 @@ async def test_business_info_has_footer(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_business_services_has_cta_and_footer(monkeypatch):
+async def test_business_services_has_service_buttons_and_footer(monkeypatch):
     async def fake_services(_bid):
         return [{"id": 1, "name": "Corte", "price": 10, "duration_minutes": 30}]
 
@@ -49,8 +49,33 @@ async def test_business_services_has_cta_and_footer(monkeypatch):
 
     assert isinstance(reply, BotReply)
     assert "Corte" in reply
-    assert [b["callback_data"] for b in reply.keyboard[0]] == ["menu_agendar"]
+    assert [b["callback_data"] for b in reply.keyboard[0]] == ["service_1"]
     assert [b["callback_data"] for b in reply.keyboard[-1]] == FOOTER
+    all_callbacks = [b["callback_data"] for row in reply.keyboard for b in row]
+    assert "menu_agendar" not in all_callbacks
+
+
+@pytest.mark.asyncio
+async def test_business_services_uses_buttons_not_numbers(monkeypatch):
+    async def fake_services(_bid):
+        return [
+            {"id": 1, "name": "Corte", "price": 600, "duration_minutes": 30},
+            {"id": 2, "name": "Cejas", "price": 100, "duration_minutes": 15},
+        ]
+
+    async def fake_business(_bid):
+        return {"name": "Barbería"}
+
+    monkeypatch.setattr(info.db_service, "get_business_services", fake_services)
+    monkeypatch.setattr(info.db_service, "get_business", fake_business)
+
+    reply = await info.handle_business_services(1)
+
+    assert isinstance(reply, BotReply)
+    assert "1. Corte" not in reply          # sin numeración en texto
+    assert "Corte — $600" in reply          # info sin numeración
+    assert [b["callback_data"] for b in reply.keyboard[0]] == ["service_1", "service_2"]
+    assert [b["callback_data"] for b in reply.keyboard[-1]] == ["nav_back", "nav_menu", "nav_exit"]
 
 
 # ── Orchestrator: menú con teclado ────────────────────────────────────────────

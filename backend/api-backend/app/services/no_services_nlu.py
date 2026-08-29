@@ -7,12 +7,12 @@ from typing import Dict
 
 NO_SERVICES_GENERIC = (
     "Este negocio aún no tiene servicios cargados para reservar por aquí. "
-    "Podés consultar horarios y ubicación en el menú (opción 5) o contactar al local directamente."
+    "Podés consultar horarios y ubicación en el menú, o contactar al local directamente."
 )
 
 GREETING_NO_SERVICES = (
     "¡Hola! Este negocio todavía no publicó servicios para reservar por el chat. "
-    "Podés ver horarios y ubicación con la opción 5 del menú o escribir al local."
+    "Podés ver horarios y ubicación en el menú o escribir al local."
 )
 
 

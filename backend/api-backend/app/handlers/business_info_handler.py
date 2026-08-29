@@ -47,13 +47,9 @@ async def handle_business_services(business_id: int) -> BotReply:
         )
 
     lines = [f"Estos son los servicios de <b>{bname}</b>:", ""]
-    for i, service in enumerate(services, 1):
-        lines.append(
-            f"  {i}. {service['name']} (${service['price']}, {service['duration_minutes']} min)"
-        )
+    for s in services:
+        lines.append(f"  • {s['name']} — ${s['price']}, {s['duration_minutes']} min")
     return BotReply(
         "\n".join(lines),
-        keyboard=telegram_ui.with_footer(
-            [[{"text": "📅 Agendar cita", "callback_data": "menu_agendar"}]]
-        ),
+        keyboard=telegram_ui.with_footer(telegram_ui.service_buttons(services)),
     )
