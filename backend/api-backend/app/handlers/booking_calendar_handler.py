@@ -5,8 +5,10 @@ import calendar
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
+from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
+from app.utils import telegram_ui
 from app.utils.conversation_routing import guided_menu
 from app.utils.date_parse import (
     DEFAULT_OPERATIONAL_TZ,
@@ -81,13 +83,11 @@ async def handle_booking_current_week(
     if reset_stack:
         payload["state_stack"] = []
     await conversation_manager.update_context(business_id, user_key, payload)
-    return (
-        "¿Para qué día querés tu cita?\n\n"
-        "Esta semana:\n"
-        f"{_numbered_days(days)}\n\n"
-        "  8) Buscar en otro mes\n"
-        "  9) Volver\n"
-        "  0) Menú principal"
+    rows = telegram_ui.day_buttons(days)
+    rows.append([{"text": "📅 Buscar en otro mes", "callback_data": "month_browse"}])
+    return BotReply(
+        "¿Para qué día querés tu cita?\n\nEsta semana:",
+        keyboard=telegram_ui.with_footer(rows),
     )
 
 
@@ -110,7 +110,10 @@ async def handle_booking_month(
                 "pending_data": pending_data,
             },
         )
-        return "Necesito confirmar el servicio antes de buscar fechas.\n\n9) Volver\n0) Menú principal"
+        return BotReply(
+            "Necesito confirmar el servicio antes de buscar fechas.",
+            keyboard=telegram_ui.with_footer([]),
+        )
 
     base = _today()
     months: List[Dict] = []
@@ -155,17 +158,16 @@ async def handle_booking_month(
                 "state_stack": [],
             },
         )
-        return (
+        await conversation_manager.mark_main_menu(business_id, user_key)
+        return BotReply(
             "No encontré disponibilidad en los próximos 3 meses.\n\n"
-            f"{guided_menu(context.get('customer_name') or '')}"
+            f"{guided_menu(context.get('customer_name') or '')}",
+            keyboard=telegram_ui.main_menu_keyboard(),
         )
 
-    lines = "\n".join(f"  {item['index']}. {item['label']}" for item in months)
-    return (
-        "¿En qué mes querés agendar?\n\n"
-        f"{lines}\n\n"
-        "  9) Volver\n"
-        "  0) Menú principal"
+    return BotReply(
+        "¿En qué mes querés agendar?",
+        keyboard=telegram_ui.with_footer(telegram_ui.month_buttons(months)),
     )
 
 
@@ -214,17 +216,14 @@ async def handle_booking_week(
     )
 
     if not weeks:
-        return "Ese mes ya no tiene semanas disponibles. Probá con otro mes.\n\n9) Volver\n0) Menú principal"
+        return BotReply(
+            "Ese mes ya no tiene semanas disponibles. Probá con otro mes.",
+            keyboard=telegram_ui.with_footer([]),
+        )
 
-    lines = "\n".join(
-        f"  {w['index']}. {w['label']} ({w['day_count']} días disponibles)"
-        for w in weeks
-    )
-    return (
-        f"¿Qué semana de {selected['label'].lower()}?\n\n"
-        f"{lines}\n\n"
-        "  9) Volver\n"
-        "  0) Menú principal"
+    return BotReply(
+        f"¿Qué semana de {selected['label'].lower()}?",
+        keyboard=telegram_ui.with_footer(telegram_ui.week_buttons(weeks)),
     )
 
 
@@ -260,13 +259,14 @@ async def handle_booking_day(
     )
 
     if not days:
-        return "Esa semana ya no tiene días disponibles. Probá con otra semana.\n\n9) Volver\n0) Menú principal"
+        return BotReply(
+            "Esa semana ya no tiene días disponibles. Probá con otra semana.",
+            keyboard=telegram_ui.with_footer([]),
+        )
 
-    return (
-        "¿Qué día de esa semana?\n\n"
-        f"{_numbered_days(days)}\n\n"
-        "  9) Volver\n"
-        "  0) Menú principal"
+    return BotReply(
+        "¿Qué día de esa semana?",
+        keyboard=telegram_ui.with_footer(telegram_ui.day_buttons(days)),
     )
 
 

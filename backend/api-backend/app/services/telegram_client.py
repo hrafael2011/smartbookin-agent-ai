@@ -18,9 +18,14 @@ class TelegramClient:
         self.api_url = config.TELEGRAM_API_BASE_URL
         self.timeout = 30
 
-    async def send_text_message(self, chat_id: str, message: str) -> Dict:
+    async def send_text_message(
+        self,
+        chat_id: str,
+        message: str,
+        reply_markup: Optional[Dict] = None,
+    ) -> Dict:
         """
-        Envía un mensaje de texto
+        Envía un mensaje de texto (con reply_markup opcional, ej. inline_keyboard).
         """
         if not config.TELEGRAM_BOT_TOKEN:
             logger.error("TELEGRAM_BOT_TOKEN no está definido; no se puede enviar mensajes al chat.")
@@ -28,11 +33,13 @@ class TelegramClient:
 
         url = f"{self.api_url}/sendMessage"
 
-        data = {
+        data: Dict = {
             "chat_id": chat_id,
             "text": message,
             "parse_mode": "HTML",
         }
+        if reply_markup:
+            data["reply_markup"] = reply_markup
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(url, json=data)
@@ -48,40 +55,23 @@ class TelegramClient:
                 raise
             return response.json()
 
-    async def send_interactive_buttons(
+    async def send_inline_keyboard(
         self,
         chat_id: str,
         body_text: str,
-        buttons: List[Dict[str, str]],
+        rows: List[List[Dict[str, str]]],
     ) -> Dict:
         """
-        Envía un mensaje con botones interactivos (Inline Keyboard)
-        
-        Buttons format: [{"id": "btn_1", "title": "Sí, confirmo"}, ...]
+        Envía un mensaje con Inline Keyboard.
+
+        ``rows`` es una lista de filas; cada fila una lista de botones
+        ``{"text": "...", "callback_data": "..."}`` (ver app/utils/telegram_ui.py).
         """
-        url = f"{self.api_url}/sendMessage"
-
-        # Construir Inline Keyboard
-        inline_keyboard = []
-        for btn in buttons:
-            inline_keyboard.append([{
-                "text": btn.get("title", "Opción"),
-                "callback_data": btn.get("id", "btn")
-            }])
-
-        data = {
-            "chat_id": chat_id,
-            "text": body_text,
-            "reply_markup": {
-                "inline_keyboard": inline_keyboard
-            },
-            "parse_mode": "HTML"
-        }
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(url, json=data)
-            response.raise_for_status()
-            return response.json()
+        return await self.send_text_message(
+            chat_id=chat_id,
+            message=body_text,
+            reply_markup={"inline_keyboard": rows},
+        )
 
     def extract_message_from_webhook(self, payload: Dict) -> Optional[Dict]:
         """

@@ -3,11 +3,23 @@ Handler para el intent check_appointment
 """
 from datetime import datetime
 from typing import Dict
+from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
+from app.utils import telegram_ui
 
 
-async def handle_check_appointment(nlu_result: Dict, context: Dict) -> str:
+def _empty_appointments_reply(message: str) -> BotReply:
+    """Sin citas próximas: CTA de agendar + footer (nunca una pregunta abierta)."""
+    return BotReply(
+        message,
+        keyboard=telegram_ui.with_footer(
+            [[{"text": "📅 Agendar cita", "callback_data": "menu_agendar"}]]
+        ),
+    )
+
+
+async def handle_check_appointment(nlu_result: Dict, context: Dict) -> BotReply:
     """
     Maneja la consulta de citas del cliente
 
@@ -24,7 +36,9 @@ async def handle_check_appointment(nlu_result: Dict, context: Dict) -> str:
     customer_name = context.get("customer_name", "Cliente")
 
     if not customer_id:
-        return "Parece que aún no tienes citas registradas. ¿Te gustaría agendar una?"
+        return _empty_appointments_reply(
+            "Parece que aún no tienes citas registradas. ¿Te gustaría agendar una?"
+        )
 
     try:
         # Obtener citas futuras del cliente
@@ -34,7 +48,9 @@ async def handle_check_appointment(nlu_result: Dict, context: Dict) -> str:
         )
 
         if not appointments:
-            return f"No tienes citas próximas programadas, {customer_name}. ¿Te gustaría agendar una? 😊"
+            return _empty_appointments_reply(
+                f"No tienes citas próximas programadas, {customer_name}. ¿Te gustaría agendar una? 😊"
+            )
 
         # Formatear respuesta
         lines = [f"Estas son tus citas próximas, {customer_name}:"]
@@ -70,9 +86,21 @@ async def handle_check_appointment(nlu_result: Dict, context: Dict) -> str:
             lines.append(f"... y {len(appointments) - 5} citas más")
             lines.append("")
 
-        lines.append("¿Quieres modificar o cancelar alguna? Solo dime cuál 😊")
-
-        return "\n".join(lines)
+        # Acciones directas sobre las primeras citas: cambiar o cancelar
+        visible = appointments[:5]
+        if len(visible) == 1:
+            action_row = [
+                [
+                    {"text": "✏️ Cambiar cita", "callback_data": f"modify_appt_{visible[0]['id']}"},
+                    {"text": "❌ Cancelar cita", "callback_data": f"cancel_appt_{visible[0]['id']}"},
+                ]
+            ]
+        else:
+            action_row = []
+        return BotReply("\n".join(lines), keyboard=telegram_ui.with_footer(action_row))
 
     except Exception as e:
-        return f"Hubo un problema consultando tus citas. Por favor intenta de nuevo en un momento."
+        return BotReply(
+            "Hubo un problema consultando tus citas. Por favor intenta de nuevo en un momento.",
+            keyboard=telegram_ui.with_footer([]),
+        )

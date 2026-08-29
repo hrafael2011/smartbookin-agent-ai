@@ -203,6 +203,15 @@ class ConversationManager:
             },
         )
 
+    async def mark_main_menu(self, business_id: int, phone_number: str) -> None:
+        """Marca que la pantalla visible es el menú principal.
+
+        En contexto idle, solo así se interpretan los dígitos 1-5 como opciones
+        del menú (evita que un "5" escrito tras una pregunta abierta dispare
+        "Horarios y ubicación" — bug de comandos numéricos sueltos).
+        """
+        await self.update_context(business_id, phone_number, {"last_screen": "main_menu"})
+
     async def set_customer_info(
         self, business_id: int, phone_number: str, customer_id: int, customer_name: str
     ):

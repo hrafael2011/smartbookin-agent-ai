@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 from app.config import config
 from app.core.conversation_states import Intent, State
-from app.core.response_builder import EMPTY_REPLY_PLACEHOLDER
+from app.core.response_builder import BotReply, EMPTY_REPLY_PLACEHOLDER
 from app.core.state_machine import ensure_coherent_context
 from app.handlers.booking_handler import (
     handle_book_appointment,
@@ -37,6 +37,7 @@ from app.utils.flow_interpreter import (
 )
 from app.utils.time_parser import daypart_preference_hhmm_range, parse_time_candidates
 from app.utils.conversation_routing import guided_menu, is_short_confirmation_message, parse_menu_choice
+from app.utils import telegram_ui
 
 
 def _apply_python_date_authority(nlu_result: Dict[str, Any], message_text: str) -> None:
@@ -164,7 +165,7 @@ CALENDAR_BOOKING_STATES = {
 }
 
 
-async def _calendar_main_menu(business_id: int, user_key: str, customer_name: str) -> str:
+async def _calendar_main_menu(business_id: int, user_key: str, customer_name: str) -> BotReply:
     await conversation_manager.update_context(
         business_id,
         user_key,
@@ -175,10 +176,11 @@ async def _calendar_main_menu(business_id: int, user_key: str, customer_name: st
             "state_stack": [],
         },
     )
-    return guided_menu(customer_name)
+    await conversation_manager.mark_main_menu(business_id, user_key)
+    return telegram_ui.guided_menu_reply(customer_name)
 
 
-async def _calendar_back(business_id: int, user_key: str, context: Dict[str, Any]) -> str:
+async def _calendar_back(business_id: int, user_key: str, context: Dict[str, Any]) -> BotReply:
     stack = list(context.get("state_stack") or [])
     if not stack:
         return await _calendar_main_menu(
@@ -195,7 +197,7 @@ async def _calendar_back(business_id: int, user_key: str, context: Dict[str, Any
             "state_stack": stack,
         },
     )
-    return "Volvemos al paso anterior.\n\n9) Volver\n0) Menú principal\nX) Salir"
+    return BotReply("Volvemos al paso anterior.", keyboard=telegram_ui.with_footer([]))
 
 
 async def run_conversation_turn(
@@ -232,7 +234,10 @@ async def run_conversation_turn(
                     "resume_state": None,
                 },
             )
-            response_text = "Listo, continuamos. Te retomo desde donde estabas."
+            response_text = BotReply(
+                "Listo, continuamos. Te retomo desde donde estabas.",
+                keyboard=telegram_ui.with_footer([]),
+            )
         else:
             await conversation_manager.update_context(
                 business_id,
@@ -246,7 +251,11 @@ async def run_conversation_turn(
                     "resume_state": None,
                 },
             )
-            response_text = f"Entendido. Cerramos esa consulta.\n\n{guided_menu(context.get('customer_name') or '')}"
+            await conversation_manager.mark_main_menu(business_id, user_key)
+            response_text = BotReply(
+                f"Entendido. Cerramos esa consulta.\n\n{guided_menu(context.get('customer_name') or '')}",
+                keyboard=telegram_ui.main_menu_keyboard(),
+            )
         await conversation_manager.save_message(business_id, user_key, "assistant", response_text)
         return response_text
 
@@ -255,7 +264,8 @@ async def run_conversation_turn(
     if current_state == State.IDLE.value:
         capability_route = _match_idle_capability_route(message_text)
         if capability_route == "menu":
-            response_text = guided_menu(context.get("customer_name") or "")
+            await conversation_manager.mark_main_menu(business_id, user_key)
+            response_text = telegram_ui.guided_menu_reply(context.get("customer_name") or "")
         elif capability_route == "services":
             response_text = await handle_business_services(business_id)
         elif capability_route == "cancel":
@@ -509,9 +519,11 @@ async def run_conversation_turn(
                     },
                 )
                 customer_name = post_context.get("customer_name") or ""
-                response_text = (
+                await conversation_manager.mark_main_menu(business_id, user_key)
+                response_text = BotReply(
                     "No pude entender lo que necesitás después de varios intentos. "
-                    f"Te dejo el menú:\n\n{guided_menu(customer_name)}"
+                    f"Te dejo el menú:\n\n{guided_menu(customer_name)}",
+                    keyboard=telegram_ui.main_menu_keyboard(),
                 )
             else:
                 await conversation_manager.update_context(
@@ -551,9 +563,11 @@ async def run_conversation_turn(
                 )
 
     if confidence < config.CONFIDENCE_THRESHOLD:
-        response_text = (
+        await conversation_manager.mark_main_menu(business_id, user_key)
+        response_text = BotReply(
             "No estoy seguro de qué querés hacer. Elegí una opción:\n\n"
-            f"{guided_menu(context.get('customer_name') or '')}"
+            f"{guided_menu(context.get('customer_name') or '')}",
+            keyboard=telegram_ui.main_menu_keyboard(),
         )
     elif intent == Intent.BOOK_APPOINTMENT.value:
         response_text = await handle_book_appointment(nlu_result, context)

@@ -20,6 +20,7 @@ def ctx(state="idle", **extra):
         "customer_name": "Ana",
         "pending_data": {},
         "recent_messages": [],
+        "last_screen": "main_menu",
         "last_activity": datetime.now(timezone.utc).isoformat(),
     }
     base.update(extra)
@@ -101,7 +102,10 @@ async def test_execute_menu_option_one_starts_booking(monkeypatch):
     )
 
     out = await execute_guided_route(1, "w:1", RouteDecision("menu_option", option="1"), ctx())
-    assert "corte" in out.lower()
+    # El nombre del servicio vive en el botón (teclado), no en el texto numerado
+    assert "¿Qué servicio querés reservar?" in out
+    assert out.keyboard[0][0] == {"text": "Corte", "callback_data": "service_1"}
+    assert [b["callback_data"] for b in out.keyboard[-1]] == ["nav_back", "nav_menu", "nav_exit"]
     assert updates[-1][2]["state"] == "awaiting_service"
 
 
@@ -161,4 +165,5 @@ async def test_execute_exit_flow_clears_transient_state(monkeypatch):
         "current_intent": None,
         "pending_data": {},
         "state": "idle",
+        "last_screen": None,
     }

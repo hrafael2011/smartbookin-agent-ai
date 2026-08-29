@@ -1,0 +1,89 @@
+"""
+telegram_inbound serializa BotReply.keyboard a reply_markup.inline_keyboard
+y muestra el menú principal con teclado en bienvenida / captura de nombre.
+"""
+import pytest
+
+from app.services import telegram_inbound
+from app.utils import telegram_ui
+
+
+def _capture_send(monkeypatch, sent):
+    async def fake_send_text_message(*_a, **kwargs):
+        sent.append(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(telegram_inbound.telegram_client, "send_text_message", fake_send_text_message)
+
+
+def _base_mocks(monkeypatch):
+    async def fake_binding(_user_id):
+        return 1
+
+    async def fake_get_context(*_a, **_k):
+        return {"state": "idle", "current_intent": None, "recent_messages": [], "customer_name": "Ana"}
+
+    async def fake_quota(*_a, **_k):
+        return {"allowed": True}
+
+    async def fake_save_message(*_a, **_k):
+        return None
+
+    async def fake_update_context(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(telegram_inbound, "get_binding_business_id", fake_binding)
+    monkeypatch.setattr(telegram_inbound.conversation_manager, "get_context", fake_get_context)
+    monkeypatch.setattr(telegram_inbound.conversation_manager, "save_message", fake_save_message)
+    monkeypatch.setattr(telegram_inbound.conversation_manager, "update_context", fake_update_context)
+    monkeypatch.setattr("app.services.rate_limit_async.consume_daily_quota", fake_quota)
+
+
+async def test_telegram_greeting_sends_main_menu_keyboard(monkeypatch):
+    sent = []
+    _base_mocks(monkeypatch)
+    _capture_send(monkeypatch, sent)
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "extract_message_from_webhook",
+        lambda _payload: {"from": "123", "text": "hola"},
+    )
+
+    async def fail_nlu(*_a, **_k):
+        raise AssertionError("NLU should not run for deterministic menu greeting")
+
+    monkeypatch.setattr(telegram_inbound, "_run_nlu_pipeline", fail_nlu)
+
+    resp = await telegram_inbound.process_telegram_update({"message": {"text": "hola"}})
+
+    assert resp.get("status") == "ok"
+    last = sent[-1]
+    assert last["reply_markup"]["inline_keyboard"] == telegram_ui.main_menu_keyboard()
+
+
+async def test_telegram_callback_nav_menu_sends_main_menu_keyboard(monkeypatch):
+    sent = []
+    _base_mocks(monkeypatch)
+    _capture_send(monkeypatch, sent)
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "extract_message_from_webhook",
+        lambda _payload: {
+            "from": "123",
+            "type": "interactive",
+            "button_payload": "nav_menu",
+            "text": "nav_menu",
+        },
+    )
+
+    async def fail_nlu(*_a, **_k):
+        raise AssertionError("Callback nav_menu must be handled by the guided router")
+
+    monkeypatch.setattr(telegram_inbound, "_run_nlu_pipeline", fail_nlu)
+
+    resp = await telegram_inbound.process_telegram_update({"message": {"text": "nav_menu"}})
+
+    assert resp.get("status") == "ok"
+    last = sent[-1]
+    assert last["reply_markup"]["inline_keyboard"] == telegram_ui.main_menu_keyboard()
+    assert "ya no está vigente" not in last["message"] or "Elegí" not in last["message"]

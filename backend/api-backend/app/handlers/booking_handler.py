@@ -5,8 +5,10 @@ import logging
 import re
 from datetime import date as date_type, timedelta
 from typing import Dict, List
+from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
+from app.utils import telegram_ui
 from app.utils.conversation_routing import guided_menu
 from app.utils.date_parse import format_date_human_es
 from app.utils.time_parser import (
@@ -47,6 +49,18 @@ def _slots_short_list(page_info: Dict) -> str:
     if page_info.get("has_next"):
         lines.append("  8) Siguiente →")
     return "\n".join(lines)
+
+
+def render_slots_reply(pending_data: Dict, page: int = 0, header: str = "") -> BotReply:
+    """Grilla de horarios (3 columnas, paginada) + footer de navegación."""
+    slots = pending_data.get("available_slots") or []
+    date_str = str(pending_data.get("date") or "")
+    rows = telegram_ui.with_footer(
+        telegram_ui.time_grid_buttons(slots, date_str, page=page)
+    )
+    date_show = format_date_human_es(date_str) if date_str else ""
+    text = header or f"Para el <b>{date_show}</b> tenemos estos horarios:"
+    return BotReply(f"{text}\n\n¿Cuál preferís?", keyboard=rows)
 
 
 def _service_menu_text(services: List[Dict]) -> str:
@@ -165,19 +179,18 @@ def _build_confirmation_text(
     service_name: str,
     date_str: str,
     slot: Dict,
-) -> str:
+) -> BotReply:
     who = customer_name or "cliente"
     hour = slot.get("start_time", "")
     date_show = format_date_human_es(date_str) if date_str else ""
-    return (
+    return BotReply(
         f"Perfecto, <b>{who}</b>. La hora <b>{hour}</b> está disponible.\n\n"
         "Resumen de la cita:\n"
         f"✂️ Servicio: {service_name}\n"
         f"📅 Fecha: {date_show}\n"
-        f"⏰ Hora: {hour}\n"
-        "\n"
-        "¿Confirmo esta cita?\n"
-        "Respondé <b>sí</b> para agendar o <b>no</b> para ver otros horarios."
+        f"⏰ Hora: {hour}\n\n"
+        "¿Confirmo esta cita?",
+        keyboard=telegram_ui.with_footer(telegram_ui.confirm_booking_buttons()),
     )
 
 
@@ -322,7 +335,7 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         services_all = await db_service.get_business_services(business_id)
         if not services_all:
             from app.services.no_services_nlu import NO_SERVICES_GENERIC
-            return NO_SERVICES_GENERIC
+            return BotReply(NO_SERVICES_GENERIC, keyboard=telegram_ui.with_footer([]))
 
         # Para MVP: usar el servicio conocido si existe, si no el primero de la lista
         service_for_query = None
@@ -376,11 +389,10 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
                         "pending_data": pending_data,
                     },
                 )
-                return (
+                return BotReply(
                     f"El <b>{date_show}</b> no tenemos horarios disponibles. "
-                    f"Los próximos días con disponibilidad son:\n\n"
-                    f"{_suggested_days_text(next_days)}\n\n"
-                    "¿Cuál preferís? (1, 2 o 3) O decime otra fecha."
+                    "Los próximos días con disponibilidad son:\n\n¿Cuál preferís?",
+                    keyboard=telegram_ui.with_footer(telegram_ui.day_buttons(next_days)),
                 )
             await conversation_manager.update_context(
                 business_id,
@@ -391,31 +403,29 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
                     "pending_data": pending_data,
                 },
             )
-            return (
+            return BotReply(
                 f"Lo siento, el <b>{date_show}</b> no tenemos horarios disponibles. "
-                "¿Querés probar otro día?"
+                "¿Querés probar otro día?",
+                keyboard=telegram_ui.with_footer([]),
             )
 
         page_info = _paginate_slots(slots, page=0)
+        pending_slots = {
+            **pending_data,
+            "available_slots": slots,
+            "slot_page": 0,
+            "service_id": service_for_query["id"],
+        }
         await conversation_manager.update_context(
             business_id,
             phone_number,
             {
                 "current_intent": "book_appointment",
                 "state": "awaiting_slot_selection",
-                "pending_data": {
-                    **pending_data,
-                    "available_slots": slots,
-                    "slot_page": 0,
-                    "service_id": service_for_query["id"],
-                },
+                "pending_data": pending_slots,
             },
         )
-        return (
-            f"Para el <b>{date_show}</b> tenemos estos horarios:\n\n"
-            f"{_slots_short_list(page_info)}\n\n"
-            "¿Cuál preferís? Respondé con el número o la hora exacta."
-        )
+        return render_slots_reply(pending_slots, page=0)
 
     # 5. Servicio: si no está, intentar resolver del mensaje actual o preguntar
     if not pending_data.get("service"):
@@ -428,7 +438,6 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         if selected_name:
             pending_data["service"] = selected_name
         else:
-            services_text = _service_menu_text(services_all)
             slot = pending_data.get("selected_slot") or {}
             slot_time = slot.get("start_time", "")
             date_show = format_date_human_es(str(pending_data["date"]))
@@ -442,10 +451,9 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
                     "pending_data": pending_data,
                 },
             )
-            return (
-                f"Perfecto. Para el <b>{date_show}</b>{time_part}, ¿qué servicio necesitás?\n\n"
-                f"{services_text}\n\n"
-                "Escribí el nombre o el número."
+            return BotReply(
+                f"Perfecto. Para el <b>{date_show}</b>{time_part}, ¿qué servicio necesitás?",
+                keyboard=telegram_ui.with_footer(telegram_ui.service_buttons(services_all)),
             )
 
     # 6. Tenemos toda la información necesaria; resolver service_id
@@ -538,14 +546,17 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
                         "pending_data": fresh_pending,
                     },
                 )
-                return (
+                return BotReply(
                     f"No tengo disponibilidad para {service['name']} el {date_show}. "
-                    f"Los próximos días disponibles son:\n\n"
-                    f"{_suggested_days_text(next_days)}\n\n"
-                    "¿Cuál preferís? (1, 2 o 3) O decime otra fecha."
+                    "Los próximos días disponibles son:\n\n¿Cuál preferís?",
+                    keyboard=telegram_ui.with_footer(telegram_ui.day_buttons(next_days)),
                 )
             await conversation_manager.clear_pending_data(business_id, phone_number)
-            return f"Lo siento, no tengo disponibilidad para {service['name']} el {date_show}. ¿Te gustaría otra fecha?"
+            return BotReply(
+                f"Lo siento, no tengo disponibilidad para {service['name']} el {date_show}. "
+                "¿Te gustaría otra fecha?",
+                keyboard=telegram_ui.with_footer([]),
+            )
 
         exact_slot = pick_exact_slot(slots, time_str or "", allow_bare_hour=True)
         if exact_slot:
@@ -598,11 +609,26 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         if not req_txt and isinstance(dr, dict):
             req_txt = "en esa franja"
         date_show = format_date_human_es(date_str or "")
-        return (
-            f"No tengo disponibilidad exacta a las <b>{req_txt}</b> para {service['name']} el {date_show}.\n\n"
-            f"Sí tengo estas opciones:\n{_slots_short_list(page_info2)}\n\n"
-            "Decime cuál preferís (número u hora exacta)."
+        pending_alt = {
+            **pending_data,
+            "available_slots": suggestions,
+            "slot_page": 0,
+            "service_id": service_id,
+        }
+        await conversation_manager.update_context(
+            business_id,
+            phone_number,
+            {
+                "current_intent": "book_appointment",
+                "state": "awaiting_slot_selection",
+                "pending_data": pending_alt,
+            },
         )
+        header = (
+            f"No tengo disponibilidad exacta a las <b>{req_txt}</b> para {service['name']} el {date_show}. "
+            "Sí tengo estas opciones:"
+        )
+        return render_slots_reply(pending_alt, page=0, header=header)
 
     except Exception as e:
         await conversation_manager.clear_pending_data(business_id, phone_number)
@@ -631,26 +657,18 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
     raw_nav = str(nlu_result.get("_raw_user_text") or "").strip()
     if raw_nav == "8" and page_info["has_next"]:
         new_page = current_page + 1
-        new_page_info = _paginate_slots(available_slots, page=new_page)
+        updated_pending = {**pending_data, "slot_page": new_page}
         await conversation_manager.update_context(
-            business_id, phone_number, {"pending_data": {**pending_data, "slot_page": new_page}}
+            business_id, phone_number, {"pending_data": updated_pending}
         )
-        return (
-            f"Página {new_page + 1}:\n\n"
-            f"{_slots_short_list(new_page_info)}\n\n"
-            "¿Cuál preferís?"
-        )
+        return render_slots_reply(updated_pending, page=new_page, header=f"Página {new_page + 1}:")
     if raw_nav == "7" and page_info["has_prev"]:
         new_page = current_page - 1
-        new_page_info = _paginate_slots(available_slots, page=new_page)
+        updated_pending = {**pending_data, "slot_page": new_page}
         await conversation_manager.update_context(
-            business_id, phone_number, {"pending_data": {**pending_data, "slot_page": new_page}}
+            business_id, phone_number, {"pending_data": updated_pending}
         )
-        return (
-            f"Página {new_page + 1}:\n\n"
-            f"{_slots_short_list(new_page_info)}\n\n"
-            "¿Cuál preferís?"
-        )
+        return render_slots_reply(updated_pending, page=new_page, header=f"Página {new_page + 1}:")
 
     page_slots = page_info["slots"]
     time_entity = nlu_result.get("entities", {}).get("time")
@@ -666,10 +684,10 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
     )
 
     if not selected_slot:
-        return (
-            "No entendí cuál horario elegiste.\n\n"
-            f"Estas siguen siendo las opciones:\n{_slots_short_list(page_info)}\n\n"
-            "Podés responder con el número, decir una hora exacta o indicarme otro día."
+        return render_slots_reply(
+            pending_data,
+            page=current_page,
+            header="No entendí cuál horario elegiste. Estas siguen siendo las opciones:",
         )
 
     updated_pending = {**pending_data, "selected_slot": selected_slot}
@@ -682,7 +700,6 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
         if selected_name:
             updated_pending["service"] = selected_name
         else:
-            services_text = _service_menu_text(services_all)
             slot_time = selected_slot.get("start_time", "")
             date_show = format_date_human_es(str(pending_data.get("date", "")))
             await conversation_manager.update_context(
@@ -694,10 +711,10 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
                     "pending_data": updated_pending,
                 },
             )
-            return (
+            return BotReply(
                 f"Guardé tu horario: <b>{slot_time}</b> del <b>{date_show}</b>.\n\n"
-                f"¿Qué servicio necesitás?\n\n{services_text}\n\n"
-                "Escribí el nombre o el número."
+                "¿Qué servicio necesitás?",
+                keyboard=telegram_ui.with_footer(telegram_ui.service_buttons(services_all)),
             )
 
     await conversation_manager.update_context(
@@ -744,10 +761,10 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
                     "pending_data": pending_data,
                 },
             )
-            return (
-                "Perfecto, cambiamos el horario. Estas son las opciones disponibles:\n\n"
-                f"{_slots_short_list(_paginate_slots(available_slots, page=0))}\n\n"
-                "Decime el número u otra hora exacta."
+            return render_slots_reply(
+                pending_data,
+                page=0,
+                header="Perfecto, cambiamos el horario. Estas son las opciones disponibles:",
             )
         await conversation_manager.update_context(
             business_id,
@@ -758,10 +775,16 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
                 "pending_data": pending_data,
             },
         )
-        return "Listo, no la confirmé. ¿Qué hora te conviene?"
+        return BotReply(
+            "Listo, no la confirmé. ¿Qué hora te conviene?",
+            keyboard=telegram_ui.with_footer([]),
+        )
 
     if not any(w in user_text for w in yes_words):
-        return "Para seguir, respondeme <b>sí</b> para confirmar o <b>no</b> para cambiar horario."
+        return BotReply(
+            "Para confirmar tocá <b>✅ Confirmar</b> o <b>🔁 Ver otro horario</b>.",
+            keyboard=telegram_ui.with_footer(telegram_ui.confirm_booking_buttons()),
+        )
 
     if not selected_slot or not customer_id:
         await conversation_manager.clear_pending_data(business_id, phone_number)
@@ -792,22 +815,24 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
                 pending_data.get("date"),
                 requested_hhmm,
             )
+            fresh_pending = {
+                **pending_data,
+                "available_slots": fresh.get("available_slots", [])[:8],
+                "slot_page": 0,
+            }
             await conversation_manager.update_context(
                 business_id,
                 phone_number,
                 {
                     "current_intent": "book_appointment",
                     "state": "awaiting_slot_selection",
-                    "pending_data": {
-                        **pending_data,
-                        "available_slots": fresh.get("available_slots", [])[:8],
-                    },
+                    "pending_data": fresh_pending,
                 },
             )
-            return (
-                "Ese horario ya no está disponible. Te comparto opciones actualizadas:\n\n"
-                f"{_slots_short_list(_paginate_slots(fresh.get('available_slots', []), page=0))}\n\n"
-                "Decime cuál preferís."
+            return render_slots_reply(
+                fresh_pending,
+                page=0,
+                header="Ese horario ya no está disponible. Te comparto opciones actualizadas:",
             )
 
         appointment_data = {
@@ -826,20 +851,21 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
                 date=str(pending_data.get("date") or ""),
             )
             fresh_slots = fresh2.get("available_slots", [])[:8]
+            conflict_pending = {**pending_data, "available_slots": fresh_slots, "slot_page": 0}
             await conversation_manager.update_context(
                 business_id,
                 phone_number,
                 {
                     "current_intent": "book_appointment",
                     "state": "awaiting_slot_selection",
-                    "pending_data": {**pending_data, "available_slots": fresh_slots},
+                    "pending_data": conflict_pending,
                 },
             )
-            return (
-                "Ese horario acaba de ser reservado por otra persona. "
-                "Te muestro las opciones actualizadas:\n\n"
-                f"{_slots_short_list(_paginate_slots(fresh_slots, page=0))}\n\n"
-                "Decime cuál preferís."
+            return render_slots_reply(
+                conflict_pending,
+                page=0,
+                header="Ese horario acaba de ser reservado por otra persona. "
+                "Te muestro las opciones actualizadas:",
             )
         logger.info(
             "booking_confirmed business=%s user=%s customer=%s service=%s appointment=%s slot=%s",
@@ -854,7 +880,8 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
 
         business = await db_service.get_business(business_id)
         customer_name = context.get("customer_name") or ""
-        return (
+        await conversation_manager.mark_main_menu(business_id, phone_number)
+        return BotReply(
             "✅ ¡Tu cita está confirmada!\n\n"
             f"👤 {customer_name or 'Cliente'}\n"
             f"📅 {format_date_human_es(pending_data.get('date') or '')}\n"
@@ -862,7 +889,8 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
             f"✂️ {pending_data.get('service', 'servicio')}\n"
             f"📍 {business.get('name', '')}\n"
             f"    {business.get('address', '')}\n\n"
-            f"{guided_menu(customer_name)}"
+            f"{guided_menu(customer_name)}",
+            keyboard=telegram_ui.main_menu_keyboard(),
         )
     except Exception:
         await conversation_manager.clear_pending_data(business_id, phone_number)

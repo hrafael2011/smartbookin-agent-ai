@@ -7,8 +7,8 @@ def test_slot_selection_accepts_option_phrase(monkeypatch):
     async def _run():
         async def fake_get_services(_business_id):
             return [
-                {"name": "Corte", "price": 10, "duration_minutes": 30},
-                {"name": "Cerquillos", "price": 8, "duration_minutes": 15},
+                {"id": 1, "name": "Corte", "price": 10, "duration_minutes": 30},
+                {"id": 2, "name": "Cerquillos", "price": 8, "duration_minutes": 15},
             ]
 
         captured = {"pending": None}
@@ -121,7 +121,7 @@ def test_booking_confirmation_requires_yes_or_no():
         }
         nlu = {"_raw_user_text": "tal vez"}
         resp = await booking_handler.handle_booking_confirmation(nlu, context)
-        assert "respondeme" in resp.lower() or "respondé" in resp.lower()
+        assert "confirmar" in resp.lower()
 
     asyncio.run(_run())
 

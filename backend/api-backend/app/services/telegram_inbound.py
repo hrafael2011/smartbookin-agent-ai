@@ -4,6 +4,7 @@ import re
 from typing import Optional
 
 from app.config import config
+from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.services.telegram_client import telegram_client
@@ -30,6 +31,7 @@ from app.services.owner_command_router import (
     owner_user_key,
     route_owner_command,
 )
+from app.utils import telegram_ui
 from app.utils.conversation_routing import (
     guided_menu,
     is_reserved_customer_display_name,
@@ -64,6 +66,14 @@ async def _reply_invalid_invite_attempt(chat_id: str, telegram_user_id: str) -> 
         chat_id=chat_id,
         message="El enlace o código no es válido. Pedile al negocio uno nuevo.",
     )
+
+
+def _reply_markup_for(response) -> Optional[dict]:
+    """Convierte BotReply.keyboard (filas de botones) en reply_markup de Telegram."""
+    keyboard = getattr(response, "keyboard", None)
+    if not keyboard:
+        return None
+    return {"inline_keyboard": keyboard}
 
 
 def _command_base(text: str) -> str:
@@ -132,9 +142,12 @@ async def _after_welcome_onboarding(business_id: int, user_key: str, chat_id: st
             business_id, user_key, cust["id"], nm
         )
         await conversation_manager.update_context(business_id, user_key, {"state": "idle"})
+        await conversation_manager.mark_main_menu(business_id, user_key)
+        menu_reply = telegram_ui.guided_menu_reply(nm)
         await telegram_client.send_text_message(
             chat_id=chat_id,
-            message=guided_menu(nm, returning=True),
+            message=str(menu_reply),
+            reply_markup=_reply_markup_for(menu_reply),
         )
         return
     await conversation_manager.update_context(
@@ -180,7 +193,10 @@ async def _handle_telegram_display_name_capture(
     )
     await conversation_manager.update_context(business_id, user_key, {"state": "idle"})
     nm = customer["name"] or display
-    return f"¡Gracias, <b>{nm}</b>! Ya te tengo presente.\n\n{guided_menu(nm)}"
+    return BotReply(
+        f"¡Gracias, <b>{nm}</b>! Ya te tengo presente.\n\n{guided_menu(nm)}",
+        keyboard=telegram_ui.main_menu_keyboard(),
+    )
 
 
 async def _run_nlu_pipeline(business_id: int, user_key: str, message_text: str) -> str:
@@ -347,9 +363,14 @@ async def process_telegram_update(payload: dict) -> dict:
                     resp = await _handle_telegram_display_name_capture(
                         business_id, user_key, text_in
                     )
+                    await conversation_manager.mark_main_menu(business_id, user_key)
                     await conversation_manager.save_message(business_id, user_key, "user", text_in)
                     await conversation_manager.save_message(business_id, user_key, "assistant", resp)
-                    await telegram_client.send_text_message(chat_id=chat_id, message=resp)
+                    await telegram_client.send_text_message(
+                        chat_id=chat_id,
+                        message=str(resp),
+                        reply_markup=_reply_markup_for(resp),
+                    )
                 return {"status": "ok"}
 
             # Reject empty messages
@@ -382,7 +403,11 @@ async def process_telegram_update(payload: dict) -> dict:
                 )
                 await conversation_manager.save_message(business_id, user_key, "user", message_text)
                 await conversation_manager.save_message(business_id, user_key, "assistant", guided)
-                await telegram_client.send_text_message(chat_id=chat_id, message=guided)
+                await telegram_client.send_text_message(
+                    chat_id=chat_id,
+                    message=str(guided),
+                    reply_markup=_reply_markup_for(guided),
+                )
                 return {"status": "ok"}
 
             # NLU pipeline fallback (guided returned None)
@@ -394,7 +419,11 @@ async def process_telegram_update(payload: dict) -> dict:
             logger.info("tg_route ai_pipeline business=%s user=%s", business_id, telegram_user_id)
             await conversation_manager.save_message(business_id, user_key, "user", message_text)
             await conversation_manager.save_message(business_id, user_key, "assistant", response_text)
-            await telegram_client.send_text_message(chat_id=chat_id, message=response_text)
+            await telegram_client.send_text_message(
+                chat_id=chat_id,
+                message=str(response_text),
+                reply_markup=_reply_markup_for(response_text),
+            )
             return {"status": "ok"}
 
         # ── No customer binding: owner routing (diferida si el flag MVP la desactiva) ──

@@ -14,6 +14,7 @@ from app.models import (
     TimeBlock,
 )
 from app.services.schedule_logic import apply_schedule_exceptions, build_slots
+from app.utils.date_parse import DEFAULT_OPERATIONAL_TZ
 
 async def get_customer_by_channel(business_id: int, phone: str) -> Optional[Dict]:
     async with AsyncSessionLocal() as db:
@@ -302,12 +303,23 @@ async def create_appointment(appointment_data: Dict) -> Dict:
             return {"error": "slot_conflict"}
         return {"id": appointment.id}
 
+def _upcoming_now() -> datetime:
+    """Reloj operativo del negocio estampado como UTC (convenio wall-clock-as-UTC).
+
+    El almacenamiento de citas guarda la hora local del negocio como si fuera UTC
+    (_utc_datetime), por lo que "próximas" debe compararse contra el reloj local del
+    negocio estampado de la misma forma — no contra datetime.now() naive del servidor
+    (en Railway/UTC eso excluía las citas del día desde 4 horas antes de ocurrir).
+    """
+    return datetime.now(DEFAULT_OPERATIONAL_TZ).replace(tzinfo=timezone.utc)
+
+
 async def get_customer_appointments(customer_id: int, upcoming: bool = False) -> List[Dict]:
     async with AsyncSessionLocal() as db:
         query = select(Appointment, Service).join(Service, Appointment.service_id == Service.id).filter(Appointment.customer_id == customer_id)
-        
+
         if upcoming:
-            query = query.filter(Appointment.date >= datetime.now(), Appointment.status.in_(["P", "C"]))
+            query = query.filter(Appointment.date >= _upcoming_now(), Appointment.status.in_(["P", "C"]))
             
         result = await db.execute(query.order_by(Appointment.date.asc()))
         
@@ -324,6 +336,30 @@ async def get_customer_appointments(customer_id: int, upcoming: bool = False) ->
                 "status": appt.status
             })
         return appointments
+
+
+async def get_customer_appointment(appointment_id: int, customer_id: int) -> Optional[Dict]:
+    """Una cita del cliente con nombre de servicio (para cancelar/modificar por callback)."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Appointment, Service)
+            .join(Service, Appointment.service_id == Service.id)
+            .filter(
+                Appointment.id == appointment_id,
+                Appointment.customer_id == customer_id,
+            )
+        )
+        row = result.first()
+        if not row:
+            return None
+        appt, service = row
+        return {
+            "id": appt.id,
+            "service_id": appt.service_id,
+            "service_name": service.name,
+            "start_at": appt.date.isoformat(),
+            "status": appt.status,
+        }
 
 
 async def get_customer_preferred_time_hhmm(customer_id: int) -> Optional[str]:

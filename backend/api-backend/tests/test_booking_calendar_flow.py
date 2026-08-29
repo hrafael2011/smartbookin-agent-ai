@@ -54,8 +54,10 @@ def test_current_week_shows_available_days(monkeypatch):
         )
 
         assert "Esta semana" in response
-        assert "miércoles 3" in response
-        assert "8) Buscar en otro mes" in response
+        # Las opciones viven en los botones, no en el texto numerado
+        assert any("miércoles" in b["text"] for row in response.keyboard for b in row)
+        assert any(b["callback_data"] == "month_browse" for row in response.keyboard for b in row)
+        assert [b["callback_data"] for b in response.keyboard[-1]] == ["nav_back", "nav_menu", "nav_exit"]
         assert captured["state"] == "booking_current_week"
         assert captured["state_stack"] == []
         assert captured["pending_data"]["service_id"] == 3
@@ -115,7 +117,8 @@ def test_month_list_shows_only_available_months(monkeypatch):
             {"pending_data": {"service_id": 3}},
         )
 
-        assert "Julio 2026" in response
+        # El mes vive en el botón (month_1), no en el texto numerado
+        assert response.keyboard[0][0] == {"text": "Julio 2026", "callback_data": "month_1"}
         assert "Agosto 2026" not in response
         assert captured["pending_data"]["calendar_months"] == [
             {"index": 1, "year": 2026, "month": 7, "label": "Julio 2026"}
@@ -151,7 +154,8 @@ def test_month_selection_transitions_to_week(monkeypatch):
             },
         )
 
-        assert "Semana" in response
+        assert "semana" in response.lower()
+        assert response.keyboard[0][0]["callback_data"].startswith("week_")
         assert captured["state"] == "booking_week"
         assert captured["pending_data"]["calendar_weeks"]
 
@@ -186,7 +190,7 @@ def test_week_selection_transitions_to_day(monkeypatch):
         )
 
         assert "¿Qué día" in response
-        assert "jueves 2" in response
+        assert any("jueves" in b["text"] for row in response.keyboard for b in row)
         assert captured["state"] == "booking_day"
 
     asyncio.run(_run())

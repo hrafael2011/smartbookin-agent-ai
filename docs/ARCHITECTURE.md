@@ -142,3 +142,12 @@ erDiagram
 | Framework backend | [ADR-001](adr/ADR-001-fastapi-async-framework.md) | FastAPI como framework — async nativo, OpenAPI auto |
 | Arquitectura NLU | [ADR-002](adr/ADR-002-hybrid-orchestrator-over-nlu-pure.md) | Híbrido: menú guiado + NLU fallback |
 | Base de datos | [ADR-003](adr/ADR-003-postgresql-over-mongodb.md) | PostgreSQL sobre MongoDB — integridad referencial |
+
+---
+
+## Convención de UI conversacional
+
+El canal Telegram usa **Inline Keyboards con `callback_data`** en lugar de menús
+numerados en texto. La convención de ids, el patrón de footer de navegación y el
+mapeo a WhatsApp Business API (Reply Buttons / List Message) están documentados en
+[TELEGRAM_UI_CONVENTION.md](TELEGRAM_UI_CONVENTION.md).

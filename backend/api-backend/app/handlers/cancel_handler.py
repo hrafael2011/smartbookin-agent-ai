@@ -5,8 +5,10 @@ import logging
 import re
 from datetime import datetime
 from typing import Dict
+from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
+from app.utils import telegram_ui
 from app.utils.conversation_routing import (
     guided_menu,
     is_affirmative,
@@ -90,7 +92,10 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
     current_state = context.get("state", "idle")
 
     if not customer_id:
-        return "No tienes citas registradas para cancelar."
+        return BotReply(
+            "No tienes citas registradas para cancelar.",
+            keyboard=telegram_ui.with_footer([]),
+        )
 
     try:
         # Obtener citas futuras
@@ -100,7 +105,12 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
         )
 
         if not appointments:
-            return "No tienes citas próximas para cancelar."
+            return BotReply(
+                "No tienes citas próximas para cancelar. ¿Te gustaría agendar una?",
+                keyboard=telegram_ui.with_footer(
+                    [[{"text": "📅 Agendar cita", "callback_data": "menu_agendar"}]]
+                ),
+            )
 
         # Caso 1: Solo tiene 1 cita
         if len(appointments) == 1:
@@ -133,12 +143,16 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
 
                 if wants_no:
                     await conversation_manager.clear_pending_data(business_id, phone_number)
-                    return f"Entendido, tu cita se mantiene.\n\n{guided_menu(customer_name)}"
+                    await conversation_manager.mark_main_menu(business_id, phone_number)
+                    return BotReply(
+                        f"Entendido, tu cita se mantiene.\n\n{guided_menu(customer_name)}",
+                        keyboard=telegram_ui.main_menu_keyboard(),
+                    )
 
                 if wants_yes:
                     await db_service.cancel_appointment(
                         appointment_id=appt["id"],
-                        notes="Cancelado por el cliente vía WhatsApp",
+                        notes="Cancelado por el cliente vía Telegram",
                     )
                     logger.info(
                         "appointment_cancelled business=%s user=%s customer=%s appointment=%s",
@@ -149,13 +163,18 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                     )
 
                     await conversation_manager.clear_pending_data(business_id, phone_number)
+                    await conversation_manager.mark_main_menu(business_id, phone_number)
 
-                    return (
+                    return BotReply(
                         "✅ Tu cita ha sido cancelada exitosamente.\n\n"
-                        f"{guided_menu(customer_name)}"
+                        f"{guided_menu(customer_name)}",
+                        keyboard=telegram_ui.main_menu_keyboard(),
                     )
 
-                return "No entendí. ¿Confirmás que querés cancelar la cita? Respondé sí o no."
+                return BotReply(
+                    "No entendí. Tocá <b>✅ Sí, cancelar</b> o <b>❌ No, mantener</b>.",
+                    keyboard=telegram_ui.with_footer(telegram_ui.cancel_confirm_buttons()),
+                )
 
             # Primera vez, pedir confirmación
             start_at = datetime.fromisoformat(appt['start_at'].replace('Z', '+00:00'))
@@ -174,12 +193,14 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                 }
             )
 
-            return f"""Tu cita:
-📅 {date_str}
-⏰ {time_str}
-✂️ {service_name}
-
-¿Confirmas que quieres cancelarla?"""
+            return BotReply(
+                f"Tu cita:\n"
+                f"📅 {date_str}\n"
+                f"⏰ {time_str}\n"
+                f"✂️ {service_name}\n\n"
+                "¿Confirmás que querés cancelarla?",
+                keyboard=telegram_ui.with_footer(telegram_ui.cancel_confirm_buttons()),
+            )
 
         # Caso 2: Tiene múltiples citas, debe elegir
         if current_state == "awaiting_appointment_selection":
@@ -190,10 +211,17 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                 raw = (nlu_result.get("_raw_user_text") or "").strip()
                 if _wants_menu(raw):
                     await conversation_manager.clear_pending_data(business_id, phone_number)
-                    return guided_menu(customer_name)
+                    await conversation_manager.mark_main_menu(business_id, phone_number)
+                    return BotReply(
+                        guided_menu(customer_name),
+                        keyboard=telegram_ui.main_menu_keyboard(),
+                    )
                 if _wants_exit_cancel_selection(raw):
                     await conversation_manager.clear_pending_data(business_id, phone_number)
-                    return "Perfecto, no cancelé ninguna cita. ¿Necesitás algo más?"
+                    return BotReply(
+                        "Perfecto, no cancelé ninguna cita. ¿Necesitás algo más?",
+                        keyboard=telegram_ui.with_footer([]),
+                    )
 
                 index = None
                 if isinstance(selection, str) and selection.isdigit():
@@ -207,7 +235,12 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                     if m:
                         index = int(m.group(1)) - 1
                     else:
-                        return "No entendí cuál cita quieres cancelar. Por favor responde con el número (1, 2, 3...)"
+                        return BotReply(
+                            "No entendí cuál cita querés cancelar. Elegí una de la lista:",
+                            keyboard=telegram_ui.with_footer(
+                                telegram_ui.appointment_buttons(appointments, prefix="cancel_appt")
+                            ),
+                        )
 
                 if 0 <= index < len(appointments):
                     selected_appt = appointments[index]
@@ -229,33 +262,33 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                         }
                     )
 
-                    return f"""Vas a cancelar:
-📅 {date_str}
-⏰ {time_str}
-✂️ {service_name}
-
-¿Confirmas la cancelación?"""
+                    return BotReply(
+                        f"Vas a cancelar:\n"
+                        f"📅 {date_str}\n"
+                        f"⏰ {time_str}\n"
+                        f"✂️ {service_name}\n\n"
+                        "¿Confirmás la cancelación?",
+                        keyboard=telegram_ui.with_footer(telegram_ui.cancel_confirm_buttons()),
+                    )
 
                 else:
-                    return f"Por favor elige un número entre 1 y {len(appointments)}"
+                    return BotReply(
+                        "Elegí una cita de la lista para cancelar:",
+                        keyboard=telegram_ui.with_footer(
+                            telegram_ui.appointment_buttons(appointments, prefix="cancel_appt")
+                        ),
+                    )
 
             except Exception as e:
-                return "No entendí cuál cita quieres cancelar. Por favor responde con el número."
+                return BotReply(
+                    "No entendí cuál cita querés cancelar. Elegí una de la lista:",
+                    keyboard=telegram_ui.with_footer(
+                        telegram_ui.appointment_buttons(appointments, prefix="cancel_appt")
+                    ),
+                )
 
-        # Primera vez con múltiples citas, listar
-        lines = [f"Tienes {len(appointments)} citas próximas. ¿Cuál quieres cancelar?"]
-        lines.append("")
-
-        for i, appt in enumerate(appointments[:5], 1):
-            start_at = datetime.fromisoformat(appt['start_at'].replace('Z', '+00:00'))
-            date_str = start_at.strftime("%d %b")
-            time_str = start_at.strftime("%I:%M %p")
-            service_name = appt.get('service_name', 'Servicio')
-
-            lines.append(f"{i}. {date_str} {time_str} - {service_name}")
-
-        lines.append("")
-        lines.append("Responde con el número de la cita que quieres cancelar.")
+        # Primera vez con múltiples citas, listar como botones
+        lines = [f"Tienes {len(appointments)} citas próximas. ¿Cuál querés cancelar?"]
 
         # Guardar estado
         await conversation_manager.update_context(
@@ -268,7 +301,15 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
             }
         )
 
-        return "\n".join(lines)
+        return BotReply(
+            "\n".join(lines),
+            keyboard=telegram_ui.with_footer(
+                telegram_ui.appointment_buttons(appointments[:5], prefix="cancel_appt")
+            ),
+        )
 
     except Exception as e:
-        return f"Hubo un problema procesando tu solicitud. Por favor intenta de nuevo."
+        return BotReply(
+            "Hubo un problema procesando tu solicitud. Por favor intenta de nuevo.",
+            keyboard=telegram_ui.with_footer([]),
+        )

@@ -17,8 +17,12 @@ def test_cancel_selection_allows_exit_without_number(monkeypatch):
             cleared["called"] = True
             return None
 
+        async def fake_update(*_args, **_kwargs):
+            return None
+
         monkeypatch.setattr(cancel_handler.db_service, "get_customer_appointments", fake_get_appointments)
         monkeypatch.setattr(cancel_handler.conversation_manager, "clear_pending_data", fake_clear)
+        monkeypatch.setattr(cancel_handler.conversation_manager, "update_context", fake_update)
 
         context = {
             "business_id": 1,
@@ -51,8 +55,12 @@ def test_cancel_selection_can_show_menu(monkeypatch):
             cleared["called"] = True
             return None
 
+        async def fake_update(*_args, **_kwargs):
+            return None
+
         monkeypatch.setattr(cancel_handler.db_service, "get_customer_appointments", fake_get_appointments)
         monkeypatch.setattr(cancel_handler.conversation_manager, "clear_pending_data", fake_clear)
+        monkeypatch.setattr(cancel_handler.conversation_manager, "update_context", fake_update)
 
         context = {
             "business_id": 1,

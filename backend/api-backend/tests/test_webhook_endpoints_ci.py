@@ -76,6 +76,9 @@ async def test_whatsapp_webhook_endpoint_ok(monkeypatch):
     async def fake_save_message(*_a, **_k):
         return None
 
+    async def fake_update_context(*_a, **_k):
+        return None
+
     async def fake_send_text_message(*_a, **_k):
         return {"messages": [{"id": "out.1"}]}
 
@@ -89,6 +92,7 @@ async def test_whatsapp_webhook_endpoint_ok(monkeypatch):
     monkeypatch.setattr(main.db_service, "get_business_by_phone_id", fake_get_business_by_phone_id)
     monkeypatch.setattr(main.conversation_manager, "get_context", fake_get_context)
     monkeypatch.setattr(main.conversation_manager, "save_message", fake_save_message)
+    monkeypatch.setattr(main.conversation_manager, "update_context", fake_update_context)
     monkeypatch.setattr(main.whatsapp_client, "send_text_message", fake_send_text_message)
     monkeypatch.setattr(main, "consume_daily_quota", fake_consume_daily_quota)
     monkeypatch.setattr(main, "run_conversation_turn", fail_nlu)
@@ -141,6 +145,9 @@ async def test_telegram_inbound_greeting_uses_guided_router_without_nlu(monkeypa
     async def fake_save_message(*_a, **_k):
         return None
 
+    async def fake_update_context(*_a, **_k):
+        return None
+
     async def fake_send_text_message(*_a, **kwargs):
         sent_messages.append(kwargs.get("message") or "")
         return {"ok": True}
@@ -158,6 +165,11 @@ async def test_telegram_inbound_greeting_uses_guided_router_without_nlu(monkeypa
         telegram_inbound.conversation_manager,
         "save_message",
         fake_save_message,
+    )
+    monkeypatch.setattr(
+        telegram_inbound.conversation_manager,
+        "update_context",
+        fake_update_context,
     )
     monkeypatch.setattr(
         telegram_inbound.telegram_client,
@@ -269,6 +281,9 @@ async def test_whatsapp_ai_quota_exhausted_still_allows_deterministic_menu(monke
     async def fake_save_message(*_a, **_k):
         return None
 
+    async def fake_update_context(*_a, **_k):
+        return None
+
     async def fake_send_text_message(*_a, **kwargs):
         sent_messages.append(kwargs.get("message") or "")
         return {"messages": [{"id": "out.1"}]}
@@ -286,6 +301,7 @@ async def test_whatsapp_ai_quota_exhausted_still_allows_deterministic_menu(monke
     monkeypatch.setattr(main.db_service, "get_business_by_phone_id", fake_get_business_by_phone_id)
     monkeypatch.setattr(main.conversation_manager, "get_context", fake_get_context)
     monkeypatch.setattr(main.conversation_manager, "save_message", fake_save_message)
+    monkeypatch.setattr(main.conversation_manager, "update_context", fake_update_context)
     monkeypatch.setattr(main.whatsapp_client, "send_text_message", fake_send_text_message)
     monkeypatch.setattr(main, "consume_daily_quota", fake_quota)
     monkeypatch.setattr(main, "run_conversation_turn", fail_nlu)
