@@ -1,7 +1,8 @@
 """Webhook Telegram: un solo bot, tenant por vínculo usuario↔negocio."""
 import logging
 import re
-from typing import Optional
+import secrets
+from typing import Dict, Optional
 
 from app.config import config
 from app.core.response_builder import BotReply
@@ -75,6 +76,23 @@ def _reply_markup_for(response) -> Optional[dict]:
     return {"inline_keyboard": keyboard}
 
 
+async def _send_bot_reply(
+    chat_id: str, business_id: int, user_key: str, reply
+) -> Dict:
+    """Envía un BotReply serializando el teclado y rotando el token de pantalla."""
+    keyboard = getattr(reply, "keyboard", None)
+    reply_markup = None
+    if keyboard:
+        token = secrets.token_hex(4)
+        await conversation_manager.update_context(
+            business_id, user_key, {"screen_token": token}
+        )
+        reply_markup = {"inline_keyboard": telegram_ui.with_screen_token(keyboard, token)}
+    return await telegram_client.send_text_message(
+        chat_id=chat_id, message=str(reply), reply_markup=reply_markup
+    )
+
+
 def _command_base(text: str) -> str:
     if not text:
         return ""
@@ -143,11 +161,7 @@ async def _after_welcome_onboarding(business_id: int, user_key: str, chat_id: st
         await conversation_manager.update_context(business_id, user_key, {"state": "idle"})
         await conversation_manager.mark_main_menu(business_id, user_key)
         menu_reply = telegram_ui.guided_menu_reply(nm)
-        await telegram_client.send_text_message(
-            chat_id=chat_id,
-            message=str(menu_reply),
-            reply_markup=_reply_markup_for(menu_reply),
-        )
+        await _send_bot_reply(chat_id, business_id, user_key, menu_reply)
         return
     await conversation_manager.update_context(
         business_id, user_key, {"state": "awaiting_telegram_display_name"}
@@ -362,11 +376,14 @@ async def process_telegram_update(payload: dict) -> dict:
                     await conversation_manager.mark_main_menu(business_id, user_key)
                     await conversation_manager.save_message(business_id, user_key, "user", text_in)
                     await conversation_manager.save_message(business_id, user_key, "assistant", resp)
-                    await telegram_client.send_text_message(
-                        chat_id=chat_id,
-                        message=str(resp),
-                        reply_markup=_reply_markup_for(resp),
-                    )
+                    if getattr(resp, "keyboard", None):
+                        await _send_bot_reply(chat_id, business_id, user_key, resp)
+                    else:
+                        await telegram_client.send_text_message(
+                            chat_id=chat_id,
+                            message=str(resp),
+                            reply_markup=_reply_markup_for(resp),
+                        )
                 return {"status": "ok"}
 
             # Reject empty messages
@@ -399,11 +416,7 @@ async def process_telegram_update(payload: dict) -> dict:
                 )
                 await conversation_manager.save_message(business_id, user_key, "user", message_text)
                 await conversation_manager.save_message(business_id, user_key, "assistant", guided)
-                await telegram_client.send_text_message(
-                    chat_id=chat_id,
-                    message=str(guided),
-                    reply_markup=_reply_markup_for(guided),
-                )
+                await _send_bot_reply(chat_id, business_id, user_key, guided)
                 return {"status": "ok"}
 
             # NLU pipeline fallback (guided returned None)
@@ -415,11 +428,7 @@ async def process_telegram_update(payload: dict) -> dict:
             logger.info("tg_route ai_pipeline business=%s user=%s", business_id, telegram_user_id)
             await conversation_manager.save_message(business_id, user_key, "user", message_text)
             await conversation_manager.save_message(business_id, user_key, "assistant", response_text)
-            await telegram_client.send_text_message(
-                chat_id=chat_id,
-                message=str(response_text),
-                reply_markup=_reply_markup_for(response_text),
-            )
+            await _send_bot_reply(chat_id, business_id, user_key, response_text)
             return {"status": "ok"}
 
         # ── No customer binding: owner routing (diferida si el flag MVP la desactiva) ──

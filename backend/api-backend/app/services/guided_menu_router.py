@@ -498,6 +498,12 @@ async def _handle_inline_callback(
     value = payload["value"]
     customer_name = context.get("customer_name") or ""
 
+    token = payload.get("token")
+    if token is not None and token != context.get("screen_token"):
+        await _clear_to_idle(business_id, user_key)
+        await _mark_main_menu(business_id, user_key)
+        return _stale_reply()
+
     if not _callback_valid_for_state(ns, context):
         await _clear_to_idle(business_id, user_key)
         await _mark_main_menu(business_id, user_key)

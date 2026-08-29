@@ -1,6 +1,9 @@
 """
 telegram_inbound serializa BotReply.keyboard a reply_markup.inline_keyboard
 y muestra el menú principal con teclado en bienvenida / captura de nombre.
+
+Desde F3b cada teclado se envía con token de pantalla (callback_data|token)
+y el token rota en cada envío (screen_token en el contexto).
 """
 import pytest
 
@@ -16,7 +19,7 @@ def _capture_send(monkeypatch, sent):
     monkeypatch.setattr(telegram_inbound.telegram_client, "send_text_message", fake_send_text_message)
 
 
-def _base_mocks(monkeypatch):
+def _base_mocks(monkeypatch, captured=None):
     async def fake_binding(_user_id):
         return 1
 
@@ -29,7 +32,9 @@ def _base_mocks(monkeypatch):
     async def fake_save_message(*_a, **_k):
         return None
 
-    async def fake_update_context(*_a, **_k):
+    async def fake_update_context(_bid, _key, payload):
+        if captured is not None:
+            captured.setdefault("updates", []).append(payload)
         return None
 
     monkeypatch.setattr(telegram_inbound, "get_binding_business_id", fake_binding)
@@ -39,9 +44,18 @@ def _base_mocks(monkeypatch):
     monkeypatch.setattr("app.services.rate_limit_async.consume_daily_quota", fake_quota)
 
 
+def _screen_token(captured):
+    """Último screen_token persistido por _send_bot_reply en los update_context."""
+    for update in reversed(captured["updates"]):
+        if "screen_token" in update:
+            return update["screen_token"]
+    return None
+
+
 async def test_telegram_greeting_sends_main_menu_keyboard(monkeypatch):
     sent = []
-    _base_mocks(monkeypatch)
+    captured = {}
+    _base_mocks(monkeypatch, captured)
     _capture_send(monkeypatch, sent)
     monkeypatch.setattr(
         telegram_inbound.telegram_client,
@@ -58,12 +72,17 @@ async def test_telegram_greeting_sends_main_menu_keyboard(monkeypatch):
 
     assert resp.get("status") == "ok"
     last = sent[-1]
-    assert last["reply_markup"]["inline_keyboard"] == telegram_ui.main_menu_keyboard()
+    token = _screen_token(captured)
+    assert token and len(token) == 8
+    assert last["reply_markup"]["inline_keyboard"] == telegram_ui.with_screen_token(
+        telegram_ui.main_menu_keyboard(), token
+    )
 
 
 async def test_telegram_callback_nav_menu_sends_main_menu_keyboard(monkeypatch):
     sent = []
-    _base_mocks(monkeypatch)
+    captured = {}
+    _base_mocks(monkeypatch, captured)
     _capture_send(monkeypatch, sent)
     monkeypatch.setattr(
         telegram_inbound.telegram_client,
@@ -85,5 +104,9 @@ async def test_telegram_callback_nav_menu_sends_main_menu_keyboard(monkeypatch):
 
     assert resp.get("status") == "ok"
     last = sent[-1]
-    assert last["reply_markup"]["inline_keyboard"] == telegram_ui.main_menu_keyboard()
+    token = _screen_token(captured)
+    assert token and len(token) == 8
+    assert last["reply_markup"]["inline_keyboard"] == telegram_ui.with_screen_token(
+        telegram_ui.main_menu_keyboard(), token
+    )
     assert "ya no está vigente" not in last["message"] or "Elegí" not in last["message"]

@@ -556,3 +556,41 @@ async def test_stale_callback_returns_not_valid_and_menu(monkeypatch):
     assert "ya no está vigente" in reply
     assert reply.keyboard == telegram_ui.main_menu_keyboard()
     assert any(u.get("state") == "idle" for u in captured["updates"])
+
+
+# ── Token de pantalla (callbacks firmados con |token) ─────────────────────────
+
+@pytest.mark.asyncio
+async def test_callback_with_old_token_is_blocked(monkeypatch):
+    captured = {}
+    _noop_update(monkeypatch, captured)
+
+    decision = router.RouteDecision(
+        "inline_callback",
+        payload={"ns": "nav", "value": "menu", "token": "aaaa"},
+        reason="callback_nav",
+    )
+    reply = await router.execute_guided_route(
+        1, "tg:1", decision, ctx(state="awaiting_service", screen_token="bbbb")
+    )
+
+    assert "ya no está vigente" in reply
+    assert reply.keyboard == telegram_ui.main_menu_keyboard()
+
+
+@pytest.mark.asyncio
+async def test_callback_with_current_token_executes(monkeypatch):
+    captured = {}
+    _noop_update(monkeypatch, captured)
+
+    decision = router.RouteDecision(
+        "inline_callback",
+        payload={"ns": "nav", "value": "menu", "token": "bbbb"},
+        reason="callback_nav",
+    )
+    reply = await router.execute_guided_route(
+        1, "tg:1", decision, ctx(state="awaiting_service", screen_token="bbbb")
+    )
+
+    assert reply.keyboard == telegram_ui.main_menu_keyboard()
+    assert any(u.get("state") == "idle" for u in captured["updates"])
