@@ -12,6 +12,7 @@ from app.config import config
 from app.services import rate_limit_async
 from app.services.guided_menu_router import route_guided_message
 from app.services.nlu_engine import NLUEngine
+from app.utils import telegram_ui
 from app.utils.conversation_routing import guided_menu
 
 
@@ -111,9 +112,10 @@ async def test_quota_ai_not_consumed_with_flag_off(monkeypatch, tmp_path):
 def test_guided_menu_hides_direct_request_with_flag_off(monkeypatch):
     monkeypatch.setattr(config, "AI_ENABLED", False)
     monkeypatch.setattr(config, "OPENAI_API_KEY", "")
-    text = guided_menu("Ana")
+    text = telegram_ui.guided_menu_short("Ana")
     assert "pedido directo" not in text
-    assert "1) Agendar cita" in text
+    assert "Elegí una opción" in text
+    assert "1) Agendar cita" not in text
 
 
 def test_guided_menu_shows_direct_request_with_flag_on(monkeypatch):

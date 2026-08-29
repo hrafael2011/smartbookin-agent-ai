@@ -547,7 +547,7 @@ def test_back_from_awaiting_date_returns_idle_when_stack_empty(monkeypatch):
         }
         resp = await execute_guided_route(1, "tg:1", decision, context)
 
-        assert "1)" in resp or "agendar" in resp.lower()
+        assert "Elegí una opción" in resp
         assert captured.get("state") == "idle"
 
     asyncio.run(_run())

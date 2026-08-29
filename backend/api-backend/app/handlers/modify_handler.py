@@ -12,7 +12,6 @@ from app.handlers.booking_handler import _paginate_slots, render_slots_reply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.utils import telegram_ui
-from app.utils.conversation_routing import guided_menu
 from app.utils.date_parse import DEFAULT_OPERATIONAL_TZ, format_date_human_es
 from app.utils.time_parser import parse_time_candidates, pick_exact_slot, sort_slots_by_requested_time
 
@@ -477,13 +476,12 @@ async def handle_modify_appointment(nlu_result: Dict, context: Dict) -> str:
                 if isinstance(new_date, str) and len(str(new_date)) == 10
                 else str(new_date)
             )
-            return BotReply(
+            return telegram_ui.main_menu_reply(
                 "✅ ¡Listo! Tu cita se reagendó exitosamente\n\n"
                 f"📅 Nueva fecha: {date_out}\n"
                 f"⏰ Nueva hora: {selected_slot['start_time']}\n"
-                f"✂️ {service_name}\n\n"
-                f"{guided_menu(customer_name)}",
-                keyboard=telegram_ui.main_menu_keyboard(),
+                f"✂️ {service_name}",
+                customer_name,
             )
 
         except Exception as e:

@@ -183,7 +183,7 @@ async def test_telegram_inbound_greeting_uses_guided_router_without_nlu(monkeypa
 
     assert resp.get("status") == "ok"
     assert sent_messages
-    assert "1) Agendar cita" in sent_messages[-1]
+    assert "Elegí una opción" in sent_messages[-1]
 
 
 async def test_whatsapp_duplicate_message_is_ignored_after_first_processing(monkeypatch):
@@ -312,7 +312,7 @@ async def test_whatsapp_ai_quota_exhausted_still_allows_deterministic_menu(monke
 
     assert resp.get("status") == "ok"
     assert quota_calls[-1]["is_ai_message"] is False
-    assert "1) Agendar cita" in sent_messages[-1]
+    assert "Elegí una opción" in sent_messages[-1]
 
 
 async def test_whatsapp_total_quota_blocks_even_deterministic_menu(monkeypatch):

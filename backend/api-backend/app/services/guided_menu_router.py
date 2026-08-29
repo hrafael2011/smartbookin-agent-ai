@@ -27,7 +27,6 @@ from app.services.conversation_manager import conversation_manager
 from app.services.no_services_nlu import NO_SERVICES_GENERIC
 from app.utils import telegram_ui
 from app.utils.conversation_routing import (
-    guided_menu,
     is_random_or_greeting,
     is_short_confirmation_message,
     parse_menu_choice,
@@ -294,7 +293,7 @@ def route_guided_message(message_text: str, context: dict) -> RouteDecision:
 
 
 def _with_menu(prefix: str, customer_name: str = "") -> BotReply:
-    return BotReply(f"{prefix}\n\n{guided_menu(customer_name)}", keyboard=telegram_ui.main_menu_keyboard())
+    return telegram_ui.main_menu_reply(prefix, customer_name)
 
 
 async def _clear_to_idle(business_id: int, user_key: str) -> None:
@@ -357,7 +356,7 @@ async def _go_back(business_id: int, user_key: str, context: dict) -> BotReply:
 async def _go_main_menu(business_id: int, user_key: str, customer_name: str) -> BotReply:
     await _clear_to_idle(business_id, user_key)
     await _mark_main_menu(business_id, user_key)
-    return telegram_ui.guided_menu_reply(customer_name)
+    return telegram_ui.main_menu_reply(customer_name=customer_name)
 
 
 async def _exit_flow(business_id: int, user_key: str) -> BotReply:
@@ -429,10 +428,7 @@ def _callback_valid_for_state(ns: str, context: dict) -> bool:
 
 
 def _stale_reply() -> BotReply:
-    return BotReply(
-        "Esa opción ya no está vigente. Elegí del menú:",
-        keyboard=telegram_ui.main_menu_keyboard(),
-    )
+    return telegram_ui.main_menu_reply("Esa opción ya no está vigente. Elegí del menú:")
 
 
 async def _handle_modify_day(business_id: int, user_key: str, date_str: str, context: dict) -> BotReply:
@@ -616,17 +612,11 @@ async def _handle_inline_callback(
         if value == "no":
             await _clear_to_idle(business_id, user_key)
             await _mark_main_menu(business_id, user_key)
-            return BotReply(
-                f"Entendido, tu cita se mantiene.\n\n{guided_menu(customer_name)}",
-                keyboard=telegram_ui.main_menu_keyboard(),
-            )
+            return telegram_ui.main_menu_reply("Entendido, tu cita se mantiene.", customer_name)
         await db_service.cancel_appointment(appointment_id=appointment_id, notes="Cancelado por el cliente vía Telegram")
         await _clear_to_idle(business_id, user_key)
         await _mark_main_menu(business_id, user_key)
-        return BotReply(
-            "✅ Tu cita ha sido cancelada exitosamente.\n\n" + guided_menu(customer_name),
-            keyboard=telegram_ui.main_menu_keyboard(),
-        )
+        return telegram_ui.main_menu_reply("✅ Tu cita ha sido cancelada exitosamente.", customer_name)
 
     if ns == "modify_appt":
         appt = await db_service.get_customer_appointment(
@@ -686,10 +676,7 @@ async def _handle_inline_callback(
             return BotReply("Listo, continuamos. Te retomo desde donde estabas.", keyboard=telegram_ui.with_footer([]))
         await _clear_to_idle(business_id, user_key)
         await _mark_main_menu(business_id, user_key)
-        return BotReply(
-            f"Entendido. Cerramos esa consulta.\n\n{guided_menu(customer_name)}",
-            keyboard=telegram_ui.main_menu_keyboard(),
-        )
+        return telegram_ui.main_menu_reply("Entendido. Cerramos esa consulta.", customer_name)
 
     return _stale_reply()
 

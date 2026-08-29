@@ -10,7 +10,6 @@ from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.utils import telegram_ui
 from app.utils.conversation_routing import (
-    guided_menu,
     is_affirmative,
     is_negative_reply,
     parse_menu_choice,
@@ -144,10 +143,7 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                 if wants_no:
                     await conversation_manager.clear_pending_data(business_id, phone_number)
                     await conversation_manager.mark_main_menu(business_id, phone_number)
-                    return BotReply(
-                        f"Entendido, tu cita se mantiene.\n\n{guided_menu(customer_name)}",
-                        keyboard=telegram_ui.main_menu_keyboard(),
-                    )
+                    return telegram_ui.main_menu_reply("Entendido, tu cita se mantiene.", customer_name)
 
                 if wants_yes:
                     await db_service.cancel_appointment(
@@ -165,11 +161,7 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                     await conversation_manager.clear_pending_data(business_id, phone_number)
                     await conversation_manager.mark_main_menu(business_id, phone_number)
 
-                    return BotReply(
-                        "✅ Tu cita ha sido cancelada exitosamente.\n\n"
-                        f"{guided_menu(customer_name)}",
-                        keyboard=telegram_ui.main_menu_keyboard(),
-                    )
+                    return telegram_ui.main_menu_reply("✅ Tu cita ha sido cancelada exitosamente.", customer_name)
 
                 return BotReply(
                     "No entendí. Tocá <b>✅ Sí, cancelar</b> o <b>❌ No, mantener</b>.",
@@ -212,10 +204,7 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
                 if _wants_menu(raw):
                     await conversation_manager.clear_pending_data(business_id, phone_number)
                     await conversation_manager.mark_main_menu(business_id, phone_number)
-                    return BotReply(
-                        guided_menu(customer_name),
-                        keyboard=telegram_ui.main_menu_keyboard(),
-                    )
+                    return telegram_ui.guided_menu_reply(customer_name)
                 if _wants_exit_cancel_selection(raw):
                     await conversation_manager.clear_pending_data(business_id, phone_number)
                     return BotReply(

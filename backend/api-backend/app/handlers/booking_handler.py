@@ -9,7 +9,6 @@ from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.utils import telegram_ui
-from app.utils.conversation_routing import guided_menu
 from app.utils.date_parse import format_date_human_es
 from app.utils.time_parser import (
     filter_slots_by_hhmm_range,
@@ -883,16 +882,15 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
         business = await db_service.get_business(business_id)
         customer_name = context.get("customer_name") or ""
         await conversation_manager.mark_main_menu(business_id, phone_number)
-        return BotReply(
+        return telegram_ui.main_menu_reply(
             "✅ ¡Tu cita está confirmada!\n\n"
             f"👤 {customer_name or 'Cliente'}\n"
             f"📅 {format_date_human_es(pending_data.get('date') or '')}\n"
             f"⏰ {selected_slot.get('start_time')}\n"
             f"✂️ {pending_data.get('service', 'servicio')}\n"
             f"📍 {business.get('name', '')}\n"
-            f"    {business.get('address', '')}\n\n"
-            f"{guided_menu(customer_name)}",
-            keyboard=telegram_ui.main_menu_keyboard(),
+            f"    {business.get('address', '')}",
+            customer_name,
         )
     except Exception:
         await conversation_manager.clear_pending_data(business_id, phone_number)

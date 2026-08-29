@@ -45,7 +45,23 @@ def test_guided_menu_reply_is_bot_reply_with_main_menu_keyboard():
 
     assert isinstance(reply, BotReply)
     assert "Ana" in reply
-    assert "Agendar cita" in reply
+    assert "Elegí una opción" in reply
+    assert reply.keyboard == telegram_ui.main_menu_keyboard()
+
+
+def test_guided_menu_reply_has_no_numbered_options():
+    reply = telegram_ui.guided_menu_reply("Ana")
+
+    assert "1) Agendar cita" not in reply
+    assert "Elegí una opción" in reply
+    assert reply.keyboard == telegram_ui.main_menu_keyboard()
+
+
+def test_main_menu_reply_with_prefix():
+    reply = telegram_ui.main_menu_reply("Listo.", "Ana")
+
+    assert reply.startswith("Listo.")
+    assert "Elegí una opción" in reply
     assert reply.keyboard == telegram_ui.main_menu_keyboard()
 
 

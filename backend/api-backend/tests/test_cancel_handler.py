@@ -74,6 +74,6 @@ def test_cancel_selection_can_show_menu(monkeypatch):
         resp = await cancel_handler.handle_cancel_appointment(nlu, context)
 
         assert cleared["called"] is True
-        assert "podés elegir una opción" in resp.lower()
+        assert "elegí una opción" in resp.lower()
 
     asyncio.run(_run())

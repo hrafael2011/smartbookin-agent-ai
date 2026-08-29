@@ -9,7 +9,6 @@ from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.utils import telegram_ui
-from app.utils.conversation_routing import guided_menu
 from app.utils.date_parse import (
     DEFAULT_OPERATIONAL_TZ,
     format_month_label,
@@ -159,10 +158,9 @@ async def handle_booking_month(
             },
         )
         await conversation_manager.mark_main_menu(business_id, user_key)
-        return BotReply(
-            "No encontré disponibilidad en los próximos 3 meses.\n\n"
-            f"{guided_menu(context.get('customer_name') or '')}",
-            keyboard=telegram_ui.main_menu_keyboard(),
+        return telegram_ui.main_menu_reply(
+            "No encontré disponibilidad en los próximos 3 meses.",
+            context.get("customer_name") or "",
         )
 
     return BotReply(

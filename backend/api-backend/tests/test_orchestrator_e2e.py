@@ -202,7 +202,7 @@ async def test_orchestrator_idle_menu_route_skips_nlu(monkeypatch):
     monkeypatch.setattr(orch.nlu_engine, "process", fake_nlu_process)
 
     out = await orch.run_conversation_turn(1, "w:99", "puedes mostrarme el menu de inicio")
-    assert "podés elegir una opción" in out.lower()
+    assert "elegí una opción" in out.lower()
 
 
 @pytest.mark.asyncio

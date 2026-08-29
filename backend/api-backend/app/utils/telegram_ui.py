@@ -26,8 +26,8 @@ from datetime import date as date_type
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from app.config import config
 from app.core.response_builder import BotReply, KeyboardRow
-from app.utils.conversation_routing import guided_menu
 
 _WEEKDAYS_ABBR = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
@@ -63,9 +63,31 @@ def main_menu_keyboard() -> KeyboardRow:
     ]
 
 
+def guided_menu_short(customer_name: str = "", *, returning: bool = False) -> str:
+    """Texto del menú SIN numeración (para pantallas con teclado de botones)."""
+    if returning and customer_name:
+        lead = f"¡Bienvenido de nuevo, <b>{customer_name}</b>! 👋"
+    elif customer_name:
+        lead = f"¡Hola, <b>{customer_name}</b>! 👋"
+    else:
+        lead = "¡Hola! 👋"
+    parts = [f"{lead}\n\n", "Elegí una opción:"]
+    if config.ai_enabled:
+        parts.append('\n\nTambién podés escribir tu pedido directo (ej. "quiero cita mañana 10am").')
+    return "".join(parts)
+
+
+def main_menu_reply(prefix: str = "", customer_name: str = "") -> BotReply:
+    """Mensaje del menú principal (texto corto + teclado), con prefix opcional."""
+    text = guided_menu_short(customer_name)
+    if prefix:
+        text = f"{prefix}\n\n{text}"
+    return BotReply(text, keyboard=main_menu_keyboard())
+
+
 def guided_menu_reply(customer_name: str = "") -> BotReply:
     """El menú principal como BotReply con su teclado (pantalla raíz, sin footer)."""
-    return BotReply(guided_menu(customer_name), keyboard=main_menu_keyboard())
+    return main_menu_reply(customer_name=customer_name)
 
 
 # ── Servicios ─────────────────────────────────────────────────────────────────

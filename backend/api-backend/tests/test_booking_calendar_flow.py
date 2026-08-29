@@ -393,7 +393,7 @@ def test_calendar_zero_goes_to_main_menu(monkeypatch):
 
         response = await orch.run_conversation_turn(1, "tg:1", "0")
 
-        assert "1" in response
+        assert "Elegí una opción" in response
         assert state["state"] == "idle"
         assert state["pending_data"] == {}
 
