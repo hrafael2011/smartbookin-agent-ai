@@ -23,9 +23,9 @@ class NLUEngine:
     """Motor de NLU usando GPT-4o-mini"""
 
     def __init__(self):
-        # Sin OPENAI_API_KEY la app arranca igual (fase 4 MVP): el NLU queda
-        # desactivado y process() devuelve el menú guiado hasta que haya llave.
-        self.client = AsyncOpenAI(api_key=config.OPENAI_API_KEY) if config.OPENAI_API_KEY else None
+        # El interruptor es config.ai_enabled (AI_ENABLED + OPENAI_API_KEY):
+        # sin IA activa la app arranca igual y process() devuelve el menú guiado.
+        self.client = AsyncOpenAI(api_key=config.OPENAI_API_KEY) if config.ai_enabled else None
         self.model = config.OPENAI_MODEL
         self.temperature = config.OPENAI_TEMPERATURE
         self.max_tokens = config.OPENAI_MAX_TOKENS
@@ -113,9 +113,9 @@ class NLUEngine:
                 "missing": [],
                 "response_text": (
                     "Por ahora solo uso el menú guiado. Escribí «menu» para ver las "
-                    "opciones, o un número del 1 al 6."
+                    "opciones, o un número del 1 al 5."
                 ),
-                "raw_understanding": "NLU desactivado: OPENAI_API_KEY no configurada",
+                "raw_understanding": "NLU desactivado: AI_ENABLED=false o sin OPENAI_API_KEY",
             }
 
         try:

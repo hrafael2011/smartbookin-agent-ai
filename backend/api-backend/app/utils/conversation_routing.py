@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from app.config import config
+
 # Palabras de comando / flujo: no deben guardarse como nombre de persona.
 RESERVED_CUSTOMER_DISPLAY_NAMES = frozenset(
     {
@@ -160,13 +162,15 @@ def guided_menu(customer_name: str = "", *, returning: bool = False) -> str:
         lead = f"¡Hola, <b>{customer_name}</b>! 👋"
     else:
         lead = "¡Hola! 👋"
-    return (
-        f"{lead}\n\n"
-        "Podés elegir una opción:\n"
-        "1) Agendar cita\n"
-        "2) Ver mis citas\n"
-        "3) Cambiar cita\n"
-        "4) Cancelar cita\n"
-        "5) Horarios y ubicación\n\n"
-        "También podés escribir tu pedido directo (ej. \"quiero cita mañana 10am\")."
-    )
+    parts = [
+        f"{lead}\n\n",
+        "Podés elegir una opción:\n",
+        "1) Agendar cita\n",
+        "2) Ver mis citas\n",
+        "3) Cambiar cita\n",
+        "4) Cancelar cita\n",
+        "5) Horarios y ubicación",
+    ]
+    if config.ai_enabled:
+        parts.append("\n\nTambién podés escribir tu pedido directo (ej. \"quiero cita mañana 10am\").")
+    return "".join(parts)

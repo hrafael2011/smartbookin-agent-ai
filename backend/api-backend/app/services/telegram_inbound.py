@@ -76,10 +76,16 @@ def _command_base(text: str) -> str:
 async def _send_welcome_for_business(business_id: int, chat_id: str) -> None:
     info = await db_service.get_business(business_id)
     name = info.get("name") or "el negocio"
-    msg = (
-        f"¡Hola! Estás en el chat de <b>{name}</b>.\n\n"
-        "Podés pedir turnos, consultar o cancelar citas con lenguaje natural."
-    )
+    if config.ai_enabled:
+        msg = (
+            f"¡Hola! Estás en el chat de <b>{name}</b>.\n\n"
+            "Podés pedir turnos, consultar o cancelar citas con lenguaje natural."
+        )
+    else:
+        msg = (
+            f"¡Hola! Estás en el chat de <b>{name}</b>.\n\n"
+            "Podés agendar, consultar o cancelar citas eligiendo las opciones del menú."
+        )
     await telegram_client.send_text_message(chat_id=chat_id, message=msg)
     user_key = tg_chat_key(chat_id)
     await _after_welcome_onboarding(business_id, user_key, chat_id)

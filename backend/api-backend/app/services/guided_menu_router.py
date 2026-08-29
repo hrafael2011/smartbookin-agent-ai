@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.config import config
 from app.handlers.business_info_handler import handle_business_info
 from app.handlers.check_handler import handle_check_appointment
 from app.services import db_service
@@ -234,7 +235,7 @@ def route_guided_message(message_text: str, context: dict) -> RouteDecision:
         return RouteDecision(
             "active_flow",
             reason="active_flow",
-            uses_ai=not deterministic_active,
+            uses_ai=config.ai_enabled and not deterministic_active,
         )
 
     choice = parse_menu_choice(message_text)
@@ -258,9 +259,9 @@ def route_guided_message(message_text: str, context: dict) -> RouteDecision:
 
     booking_words = ("agendar", "reservar", "cita", "turno")
     if any(word in t for word in booking_words):
-        return RouteDecision("direct_shortcut", reason="booking_shortcut", uses_ai=True)
+        return RouteDecision("direct_shortcut", reason="booking_shortcut", uses_ai=config.ai_enabled)
 
-    return RouteDecision("pass_to_nlu", reason="needs_interpretation", uses_ai=True)
+    return RouteDecision("pass_to_nlu", reason="needs_interpretation", uses_ai=config.ai_enabled)
 
 
 def _with_menu(prefix: str, customer_name: str = "") -> str:

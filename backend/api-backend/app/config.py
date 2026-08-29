@@ -27,12 +27,19 @@ def _bool_env(name: str, default: bool = False) -> bool:
 class Config:
     """Configuración centralizada"""
 
-    # OpenAI
+    # OpenAI — interruptor único de IA: AI_ENABLED (decisión) + OPENAI_API_KEY (credencial).
+    # Con AI_ENABLED=false el bot opera solo con menú guiado; la llave queda lista para reactivar.
+    AI_ENABLED = _bool_env("AI_ENABLED", False)
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = "gpt-4o-mini"  # Modelo optimizado para costo/rendimiento
     OPENAI_TEMPERATURE = 0.3  # Menos creativo, más preciso
     OPENAI_MAX_TOKENS = 500
     OPENAI_TIMEOUT = 10  # segundos
+
+    @property
+    def ai_enabled(self) -> bool:
+        """Punto único de lectura del interruptor de IA: flag de negocio y credencial ambos requeridos."""
+        return self.AI_ENABLED and bool(self.OPENAI_API_KEY)
 
     # Redis eliminado en fase 4 del MVP: los rate limits viven en memoria/archivo
     CONVERSATION_TTL = 3600  # 1 hora en segundos

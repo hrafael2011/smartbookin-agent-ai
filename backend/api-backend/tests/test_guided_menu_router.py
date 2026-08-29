@@ -37,7 +37,8 @@ def ctx(state="idle", **extra):
         ("que horario tienen", "business_info", False),
         ("cuanto cuesta un carro", "out_of_domain", False),
         ("esto es una mierda", "abusive", False),
-        ("quiero cita mañana a las 10", "direct_shortcut", True),
+        # Con el interruptor de IA apagado (default), los atajos no consumen cuota de IA
+        ("quiero cita mañana a las 10", "direct_shortcut", False),
     ],
 )
 def test_route_guided_message_idle_routes(text, kind, uses_ai):

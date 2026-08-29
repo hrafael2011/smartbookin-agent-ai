@@ -69,6 +69,9 @@ async def consume_daily_quota(
     - total: cualquier mensaje del cliente
     - ai: sólo cuando el mensaje requiere NLU/IA
     """
+    # Defensa del interruptor: sin IA activa ningún mensaje consume cuota de IA,
+    # aunque un call-site futuro olvide gatear uses_ai en el router.
+    is_ai_message = is_ai_message and config.ai_enabled
     if config.DISABLE_USAGE_LIMITS:
         return {"allowed": True, "total_count": None, "ai_count": None}
 
