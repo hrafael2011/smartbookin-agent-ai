@@ -210,25 +210,43 @@ def test_month_and_week_buttons():
 # ── Parser de callback_data ───────────────────────────────────────────────────
 
 def test_parse_inline_callback_namespaces():
-    assert telegram_ui.parse_inline_callback("service_3") == {"ns": "service", "value": "3"}
-    assert telegram_ui.parse_inline_callback("day_2026-08-29") == {"ns": "day", "value": "2026-08-29"}
+    assert telegram_ui.parse_inline_callback("service_3") == {"ns": "service", "value": "3", "token": None}
+    assert telegram_ui.parse_inline_callback("day_2026-08-29") == {
+        "ns": "day",
+        "value": "2026-08-29",
+        "token": None,
+    }
     assert telegram_ui.parse_inline_callback("time_2026-08-29_09:00") == {
         "ns": "time",
         "value": ("2026-08-29", "09:00"),
+        "token": None,
     }
-    assert telegram_ui.parse_inline_callback("slots_page_2") == {"ns": "slots_page", "value": "2"}
-    assert telegram_ui.parse_inline_callback("menu_agendar") == {"ns": "menu", "value": "agendar"}
-    assert telegram_ui.parse_inline_callback("nav_back") == {"ns": "nav", "value": "back"}
-    assert telegram_ui.parse_inline_callback("confirm_yes") == {"ns": "confirm", "value": "yes"}
-    assert telegram_ui.parse_inline_callback("cancel_appt_11") == {"ns": "cancel_appt", "value": "11"}
+    assert telegram_ui.parse_inline_callback("slots_page_2") == {
+        "ns": "slots_page",
+        "value": "2",
+        "token": None,
+    }
+    assert telegram_ui.parse_inline_callback("menu_agendar") == {"ns": "menu", "value": "agendar", "token": None}
+    assert telegram_ui.parse_inline_callback("nav_back") == {"ns": "nav", "value": "back", "token": None}
+    assert telegram_ui.parse_inline_callback("confirm_yes") == {"ns": "confirm", "value": "yes", "token": None}
+    assert telegram_ui.parse_inline_callback("cancel_appt_11") == {
+        "ns": "cancel_appt",
+        "value": "11",
+        "token": None,
+    }
     assert telegram_ui.parse_inline_callback("cancel_confirm_no") == {
         "ns": "cancel_confirm",
         "value": "no",
+        "token": None,
     }
-    assert telegram_ui.parse_inline_callback("modify_appt_12") == {"ns": "modify_appt", "value": "12"}
-    assert telegram_ui.parse_inline_callback("month_1") == {"ns": "month", "value": "1"}
-    assert telegram_ui.parse_inline_callback("week_2") == {"ns": "week", "value": "2"}
-    assert telegram_ui.parse_inline_callback("resume_yes") == {"ns": "resume", "value": "yes"}
+    assert telegram_ui.parse_inline_callback("modify_appt_12") == {
+        "ns": "modify_appt",
+        "value": "12",
+        "token": None,
+    }
+    assert telegram_ui.parse_inline_callback("month_1") == {"ns": "month", "value": "1", "token": None}
+    assert telegram_ui.parse_inline_callback("week_2") == {"ns": "week", "value": "2", "token": None}
+    assert telegram_ui.parse_inline_callback("resume_yes") == {"ns": "resume", "value": "yes", "token": None}
 
 
 def test_slot_by_hhmm_finds_exact_slot():
@@ -248,3 +266,28 @@ def test_parse_inline_callback_rejects_unknown_or_plain_text():
     assert telegram_ui.parse_inline_callback("day_2026-13-45") is None
     assert telegram_ui.parse_inline_callback("time_2026-08-29_9am") is None
     assert telegram_ui.parse_inline_callback("time_2026-08-29_99:99") is None
+
+
+# ── Token de pantalla ─────────────────────────────────────────────────────────
+
+def test_with_screen_token_suffixes_every_button():
+    rows = [[{"text": "A", "callback_data": "service_1"}, {"text": "B", "callback_data": "service_2"}]]
+    out = telegram_ui.with_screen_token(rows, "a1b2")
+    assert out[0][0]["callback_data"] == "service_1|a1b2"
+    assert out[0][1]["callback_data"] == "service_2|a1b2"
+
+
+def test_parse_inline_callback_with_token():
+    r = telegram_ui.parse_inline_callback("time_2026-08-29_09:00|a1b2")
+    assert r["ns"] == "time"
+    assert r["value"] == ("2026-08-29", "09:00")
+    assert r["token"] == "a1b2"
+
+
+def test_parse_inline_callback_without_token_has_none():
+    r = telegram_ui.parse_inline_callback("nav_menu")
+    assert r["token"] is None
+
+
+def test_parse_inline_callback_rejects_token_only():
+    assert telegram_ui.parse_inline_callback("|a1b2") is None

@@ -52,6 +52,14 @@ def with_footer(rows: KeyboardRow) -> KeyboardRow:
     return [*rows, build_nav_footer()]
 
 
+def with_screen_token(rows: KeyboardRow, token: str) -> KeyboardRow:
+    """Sufija `|token` a cada callback_data del teclado (token de pantalla)."""
+    return [
+        [{**btn, "callback_data": f"{btn['callback_data']}|{token}"} for btn in row]
+        for row in rows
+    ]
+
+
 # ── Menú principal ────────────────────────────────────────────────────────────
 
 def main_menu_keyboard() -> KeyboardRow:
@@ -292,16 +300,28 @@ def _valid_hhmm(value: str) -> bool:
         return False
 
 
-def parse_inline_callback(text: str) -> Optional[Dict]:
-    """Convierte un callback_data en ``{"ns": ..., "value": ...}`` o None.
+def split_callback_token(text: str):
+    """Divide `base|token`; token es None si no hay sufijo."""
+    if "|" in text:
+        base, token = text.rsplit("|", 1)
+        return base, token
+    return text, None
 
-    ``value`` es el string capturado, o tupla si el patrón tiene varios grupos.
-    Los payloads de fecha/hora se validan semánticamente (día 2026-13-45 o
-    hora 99:99 no son callbacks válidos).
+
+def parse_inline_callback(text: str) -> Optional[Dict]:
+    """Convierte un callback_data en ``{"ns", "value", "token"}`` o None.
+
+    El token de pantalla (sufijo `|token`) se extrae antes de matchear; los
+    callbacks tipeados sin token devuelven ``token=None``. ``value`` es el
+    string capturado, o tupla si el patrón tiene varios grupos. Los payloads de
+    fecha/hora se validan semánticamente (día 2026-13-45 o hora 99:99 no son
+    callbacks válidos).
     """
-    t = str(text or "")
+    base, token = split_callback_token(str(text or ""))
+    if not base:
+        return None
     for ns, pattern in _CALLBACK_PATTERNS:
-        m = pattern.match(t)
+        m = pattern.match(base)
         if not m:
             continue
         groups = m.groups()
@@ -312,5 +332,5 @@ def parse_inline_callback(text: str) -> Optional[Dict]:
             not _valid_iso_date(str(value[0])) or not _valid_hhmm(str(value[1]))
         ):
             continue
-        return {"ns": ns, "value": value}
+        return {"ns": ns, "value": value, "token": token}
     return None

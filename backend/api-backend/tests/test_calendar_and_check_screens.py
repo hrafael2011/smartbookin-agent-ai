@@ -129,6 +129,7 @@ def test_month_browse_callback_parses():
     assert telegram_ui.parse_inline_callback("month_browse") == {
         "ns": "month_browse",
         "value": "month_browse",
+        "token": None,
     }
 
 

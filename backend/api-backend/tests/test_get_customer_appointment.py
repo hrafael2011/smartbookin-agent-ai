@@ -51,3 +51,44 @@ def test_get_customer_appointment_filters_by_customer(monkeypatch):
     values = list(_walk(captured["query"].whereclause))
     assert 11 in values
     assert 7 in values
+
+
+def test_get_customer_appointment_filters_active_status(monkeypatch):
+    from sqlalchemy.sql.elements import BindParameter
+
+    captured = {}
+
+    class FakeResult:
+        def first(self):
+            return None  # cita cancelada (o inexistente) → no debe devolverse
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def execute(self, query):
+            captured["query"] = query
+            return FakeResult()
+
+    monkeypatch.setattr(db_service, "AsyncSessionLocal", lambda: FakeSession())
+
+    import asyncio
+    result = asyncio.run(db_service.get_customer_appointment(11, customer_id=7))
+    assert result is None
+
+    def _walk(clause):
+        if isinstance(clause, BindParameter):
+            value = clause.value
+            if isinstance(value, (list, tuple)):  # IN (...) llega como un bind con la lista
+                yield from value
+            else:
+                yield value
+        elif hasattr(clause, "get_children"):
+            for c in clause.get_children():
+                yield from _walk(c)
+
+    values = list(_walk(captured["query"].whereclause))
+    assert "P" in values and "C" in values  # el filtro de status está en la query

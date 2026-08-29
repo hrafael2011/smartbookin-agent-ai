@@ -363,6 +363,7 @@ async def get_customer_appointment(appointment_id: int, customer_id: int) -> Opt
             .filter(
                 Appointment.id == appointment_id,
                 Appointment.customer_id == customer_id,
+                Appointment.status.in_(["P", "C"]),
             )
         )
         row = result.first()
