@@ -1031,6 +1031,14 @@ def test_slot_selection_correct_on_page_2(monkeypatch):
     asyncio.run(_run())
 
 
+def test_paginate_slots_uses_12_per_page():
+    slots = [{"start_time": "10:00 AM", "start_datetime": f"2026-08-28T{10 + i:02d}:00:00+00:00"} for i in range(13)]
+    page_info = booking_handler._paginate_slots(slots, page=0)
+    assert len(page_info["slots"]) == 12
+    assert page_info["has_next"] is True
+    assert page_info["has_prev"] is False
+
+
 # --- Tests spec 004 T035: double booking conflict ---
 
 def test_double_booking_conflict_handled_gracefully(monkeypatch):

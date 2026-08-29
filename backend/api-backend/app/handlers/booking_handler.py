@@ -21,22 +21,11 @@ from app.utils.time_parser import (
 logger = logging.getLogger(__name__)
 
 
-_SLOTS_PAGE_SIZE = 6
+_SLOTS_PAGE_SIZE = 12
 
 
 def _paginate_slots(slots: List[Dict], page: int, page_size: int = _SLOTS_PAGE_SIZE) -> Dict:
-    total = len(slots)
-    total_pages = max(1, -(-total // page_size))  # ceiling division
-    page = max(0, min(page, total_pages - 1))
-    start = page * page_size
-    end = start + page_size
-    return {
-        "slots": slots[start:end],
-        "page": page,
-        "total_pages": total_pages,
-        "has_prev": page > 0,
-        "has_next": page < total_pages - 1,
-    }
+    return telegram_ui.paginate_slots(slots, page=page, page_size=page_size)
 
 
 def _slots_short_list(page_info: Dict) -> str:
