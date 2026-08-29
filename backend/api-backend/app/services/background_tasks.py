@@ -6,6 +6,18 @@ from app.models import Appointment, WaitlistEntry, Business
 
 logger = logging.getLogger(__name__)
 
+REMINDER_CADENCE_MINUTES = 15
+
+
+def _reminder_windows(now: datetime) -> dict:
+    """Ventanas de 24h y 2h (ancho = cadencia ±15 min) en el convenio wall-clock-as-UTC."""
+    return {
+        "start_24h": now + timedelta(hours=23, minutes=60 - REMINDER_CADENCE_MINUTES),
+        "end_24h": now + timedelta(hours=24, minutes=REMINDER_CADENCE_MINUTES),
+        "start_2h": now + timedelta(hours=1, minutes=60 - REMINDER_CADENCE_MINUTES),
+        "end_2h": now + timedelta(hours=2, minutes=REMINDER_CADENCE_MINUTES),
+    }
+
 async def process_appointment_reminders():
     """Send 24h and 2h reminders"""
     logger.info("Running appointment reminders job...")
