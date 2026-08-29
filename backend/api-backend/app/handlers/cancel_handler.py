@@ -297,7 +297,8 @@ async def handle_cancel_appointment(nlu_result: Dict, context: Dict) -> str:
             ),
         )
 
-    except Exception as e:
+    except Exception:
+        logger.exception("cancel_flow_failed business=%s user=%s customer=%s", business_id, phone_number, customer_id)
         return BotReply(
             "Hubo un problema procesando tu solicitud. Por favor intenta de nuevo.",
             keyboard=telegram_ui.with_footer([]),

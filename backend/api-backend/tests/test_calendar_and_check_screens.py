@@ -208,3 +208,19 @@ async def test_check_with_multiple_appointments_has_per_appointment_buttons(monk
     assert [b["callback_data"] for b in reply.keyboard[0]] == ["modify_appt_11", "cancel_appt_11"]
     assert [b["callback_data"] for b in reply.keyboard[1]] == ["modify_appt_12", "cancel_appt_12"]
     assert [b["callback_data"] for b in reply.keyboard[-1]] == FOOTER
+
+
+@pytest.mark.asyncio
+async def test_check_handler_logs_exception(monkeypatch):
+    captured = {}
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(check.db_service, "get_customer_appointments", boom)
+    monkeypatch.setattr(check.logger, "exception", lambda *a, **k: captured.setdefault("logged", True))
+
+    reply = await check.handle_check_appointment({}, _check_context())
+
+    assert "Hubo un problema" in reply
+    assert captured.get("logged") is True

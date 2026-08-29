@@ -1,12 +1,15 @@
 """
 Handler para el intent check_appointment
 """
+import logging
 from datetime import datetime
 from typing import Dict
 from app.core.response_builder import BotReply
 from app.services import db_service
 from app.services.conversation_manager import conversation_manager
 from app.utils import telegram_ui
+
+logger = logging.getLogger(__name__)
 
 
 def _empty_appointments_reply(message: str) -> BotReply:
@@ -100,7 +103,8 @@ async def handle_check_appointment(nlu_result: Dict, context: Dict) -> BotReply:
             )
         return BotReply("\n".join(lines), keyboard=telegram_ui.with_footer(action_rows))
 
-    except Exception as e:
+    except Exception:
+        logger.exception("check_flow_failed business=%s user=%s customer=%s", business_id, phone_number, customer_id)
         return BotReply(
             "Hubo un problema consultando tus citas. Por favor intenta de nuevo en un momento.",
             keyboard=telegram_ui.with_footer([]),

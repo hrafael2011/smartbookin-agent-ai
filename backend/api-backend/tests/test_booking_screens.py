@@ -241,3 +241,31 @@ async def test_booking_without_service_and_empty_text_asks_service(monkeypatch):
     assert "¿qué servicio" in reply
     assert [b["callback_data"] for b in reply.keyboard[0]] == ["service_1", "service_2"]
     assert captured["update"]["state"] == "awaiting_service"
+
+
+@pytest.mark.asyncio
+async def test_booking_confirmation_logs_exception(monkeypatch):
+    captured = {}
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("db down")
+
+    async def fake_update(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(booking_handler.db_service, "get_availability", boom)
+    monkeypatch.setattr(booking_handler.conversation_manager, "update_context", fake_update)
+    monkeypatch.setattr(booking_handler.logger, "exception", lambda *a, **k: captured.setdefault("logged", True))
+
+    nlu = {"_raw_user_text": "sí", "entities": {}, "missing": []}
+    context = {
+        "business_id": 1,
+        "phone_number": "tg:1",
+        "customer_id": 1,
+        "customer_name": "Ana",
+        "pending_data": {"date": "2026-08-28", "service": "Corte", "service_id": 1, "selected_slot": _slot(hour=9)},
+    }
+    reply = await booking_handler.handle_booking_confirmation(nlu, context)
+
+    assert "Hubo un problema" in reply
+    assert captured.get("logged") is True

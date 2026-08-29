@@ -138,6 +138,22 @@ async def test_cancel_confirmation_yes_returns_main_menu_keyboard(monkeypatch):
     assert reply.keyboard == telegram_ui.main_menu_keyboard()
 
 
+@pytest.mark.asyncio
+async def test_cancel_handler_logs_exception(monkeypatch):
+    captured = {}
+
+    async def boom(*_a, **_k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(cancel_handler.db_service, "get_customer_appointments", boom)
+    monkeypatch.setattr(cancel_handler.logger, "exception", lambda *a, **k: captured.setdefault("logged", True))
+
+    reply = await cancel_handler.handle_cancel_appointment({}, _ctx())
+
+    assert "Hubo un problema" in reply
+    assert captured.get("logged") is True
+
+
 # ── Modificar ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

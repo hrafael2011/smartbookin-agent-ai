@@ -631,7 +631,8 @@ async def handle_book_appointment(nlu_result: Dict, context: Dict) -> str:
         )
         return render_slots_reply(pending_alt, page=0, header=header)
 
-    except Exception as e:
+    except Exception:
+        logger.exception("booking_availability_failed business=%s user=%s", business_id, phone_number)
         await conversation_manager.clear_pending_data(business_id, phone_number)
         return f"Hubo un problema consultando la disponibilidad. ¿Podrías intentar de nuevo?"
 
@@ -893,5 +894,6 @@ async def handle_booking_confirmation(nlu_result: Dict, context: Dict) -> str:
             customer_name,
         )
     except Exception:
+        logger.exception("booking_create_failed business=%s user=%s customer=%s", business_id, phone_number, customer_id)
         await conversation_manager.clear_pending_data(business_id, phone_number)
         return "Hubo un problema creando la cita. Por favor intentá de nuevo."
