@@ -64,16 +64,32 @@ async def _send_window_reminders(db, window_start, window_end, label, flag_attr)
         if business and business.address:
             message += f"    {html.escape(business.address)}\n"
         try:
-            await telegram_client.send_text_message(chat_id=chat_id, message=message)
-            setattr(appt, flag_attr, True)
-            await db.commit()
-            logger.info(
-                "reminder_sent kind=%s appt=%s chat=%s business=%s",
-                label, appt.id, chat_id, appt.business_id,
-            )
+            # Savepoint por fila: si el envío falla, solo se revierte (y expira)
+            # esta fila — un rollback full expiraría todas las filas cargadas y el
+            # siguiente acceso a customer.phone_number lanzaría MissingGreenlet,
+            # matando el job para las citas restantes.
+            async with db.begin_nested():
+                await telegram_client.send_text_message(chat_id=chat_id, message=message)
+                setattr(appt, flag_attr, True)
         except Exception:
             logger.exception("reminder_send_failed kind=%s appt=%s chat=%s", label, appt.id, chat_id)
-            await db.rollback()
+            continue
+        try:
+            await db.commit()
+        except Exception:
+            # Fallo fuera del savepoint (commit): la sesión queda comprometida;
+            # rollback full + return, y el resto de la corrida se reintenta en la
+            # próxima pasada de 15 min — sin pérdida permanente.
+            logger.exception("reminder_send_failed kind=%s appt=%s chat=%s", label, appt.id, chat_id)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            return
+        logger.info(
+            "reminder_sent kind=%s appt=%s chat=%s business=%s",
+            label, appt.id, chat_id, appt.business_id,
+        )
 
 async def process_waitlist_expiration():
     """Expire waitlist entries that haven't been fulfilled"""

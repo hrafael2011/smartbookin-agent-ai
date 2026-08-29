@@ -49,6 +49,7 @@ class FakeSession:
         else:
             self._passes = [list(rows)]
         self.committed = False
+        self.rolled_back_nested = False
         self.executed = []
 
     async def __aenter__(self):
@@ -67,6 +68,21 @@ class FakeSession:
 
     async def rollback(self):
         pass
+
+    def begin_nested(self):
+        class _Nested:
+            def __init__(self, session):
+                self._session = session
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                if exc_type is not None:
+                    self._session.rolled_back_nested = True
+                return False
+
+        return _Nested(self)
 
 
 def _run(rows, monkeypatch):
@@ -99,6 +115,31 @@ def test_marks_flag_only_on_successful_send(monkeypatch):
     sent, session = _run([row], monkeypatch)
     assert sent and session.committed is True
     assert row.appointment.reminder_24h_sent is True
+
+
+def test_first_send_failure_does_not_break_second(monkeypatch):
+    row1 = _Row(appt_id=1, tg="tg:11111")
+    row2 = _Row(appt_id=2, tg="tg:22222")
+    session = FakeSession([[row1, row2], []])
+    sent = []
+
+    async def fake_send(chat_id, message, **kwargs):
+        if chat_id == "11111":
+            raise RuntimeError("telegram down")
+        sent.append((chat_id, message))
+        return {"ok": True}
+
+    monkeypatch.setattr(background_tasks.db_service, "_upcoming_now", lambda: NOW)
+    monkeypatch.setattr(background_tasks.telegram_client, "send_text_message", fake_send)
+    monkeypatch.setattr(background_tasks, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(background_tasks.logger, "exception", lambda *a, **k: None)
+
+    asyncio.run(background_tasks.process_appointment_reminders())
+
+    assert [c for c, _ in sent] == ["22222"]
+    assert row2.appointment.reminder_24h_sent is True
+    assert row1.appointment.reminder_24h_sent is False
+    assert session.rolled_back_nested is True
 
 
 def test_send_failure_does_not_mark_flag(monkeypatch):
@@ -170,3 +211,9 @@ def test_query_filters_windows_and_unset_flags(monkeypatch):
     assert NOW + timedelta(hours=23, minutes=45) in values
     assert NOW + timedelta(hours=24, minutes=15) in values
     assert False in values  # filtro flag == False (solo citas sin recordatorio previo)
+
+    # La pasada 2h tiene sus propios bordes de ventana.
+    values_2h = list(_walk(session.executed[1].whereclause))
+    assert NOW + timedelta(hours=1, minutes=45) in values_2h
+    assert NOW + timedelta(hours=2, minutes=15) in values_2h
+    assert False in values_2h
