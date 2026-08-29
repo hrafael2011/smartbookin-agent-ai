@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     start_scheduler()
 
     # Run reminders every 30 minutes
-    scheduler.add_job(process_appointment_reminders, 'interval', minutes=30, id='reminders_job', replace_existing=True)
+    scheduler.add_job(process_appointment_reminders, 'interval', minutes=15, id='reminders_job', replace_existing=True)
 
     # MVP (fase 1): waitlist diferida tras flag — solo se crea el job si está activa
     if config.WAITLIST_ENABLED:
