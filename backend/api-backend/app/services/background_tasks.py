@@ -2,7 +2,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.future import select
 from app.core.database import AsyncSessionLocal
-from app.models import Appointment, WaitlistEntry, Business
+from app.models import Appointment, Customer, Service, WaitlistEntry, Business
+from app.services import db_service
+from app.services.telegram_client import telegram_client
 
 logger = logging.getLogger(__name__)
 
@@ -19,21 +21,56 @@ def _reminder_windows(now: datetime) -> dict:
     }
 
 async def process_appointment_reminders():
-    """Send 24h and 2h reminders"""
+    """Send 24h and 2h reminders (precisión ±15 min, convenio wall-clock-as-UTC)."""
     logger.info("Running appointment reminders job...")
-    async with AsyncSessionLocal() as db:
-        now = datetime.now(timezone.utc)
-        
-        # 24h reminders
-        target_24h_start = now + timedelta(hours=23, minutes=30)
-        target_24h_end = now + timedelta(hours=24, minutes=30)
-        
-        # 2h reminders
-        target_2h_start = now + timedelta(hours=1, minutes=30)
-        target_2h_end = now + timedelta(hours=2, minutes=30)
+    now = db_service._upcoming_now()
+    windows = _reminder_windows(now)
 
-        # Logic to fetch and send reminders would go here.
-        # Ensure we check status == 'C' or 'P' and flags reminder_24h_sent / reminder_2h_sent.
+    async with AsyncSessionLocal() as db:
+        # 24h reminders
+        await _send_window_reminders(db, windows["start_24h"], windows["end_24h"], "24h", "reminder_24h_sent")
+        # 2h reminders
+        await _send_window_reminders(db, windows["start_2h"], windows["end_2h"], "2h", "reminder_2h_sent")
+
+
+async def _send_window_reminders(db, window_start, window_end, label, flag_attr):
+    result = await db.execute(
+        select(Appointment, Customer, Service, Business)
+        .join(Customer, Appointment.customer_id == Customer.id, isouter=True)
+        .join(Service, Appointment.service_id == Service.id, isouter=True)
+        .join(Business, Appointment.business_id == Business.id, isouter=True)
+        .filter(
+            Appointment.status.in_(["P", "C"]),
+            Appointment.date >= window_start,
+            Appointment.date <= window_end,
+            getattr(Appointment, flag_attr) == False,
+        )
+    )
+    for appt, customer, service, business in result.all():
+        phone = (customer.phone_number if customer else "") or ""
+        if not phone.startswith("tg:"):
+            logger.info("reminder_skip_non_tg business=%s appt=%s phone=%s", appt.business_id, appt.id, phone[:20])
+            continue
+        chat_id = phone[3:]
+        message = (
+            "📅 <b>Recordatorio de tu cita</b>\n\n"
+            f"📍 {(business.name if business else '') or 'Negocio'}\n"
+            f"✂️ {service.name if service else 'Servicio'}\n"
+            f"📅 {appt.date.strftime('%A %d de %B')}\n"
+            f"⏰ {appt.date.strftime('%I:%M %p').lstrip('0')}\n"
+        )
+        if business and business.address:
+            message += f"    {business.address}\n"
+        try:
+            await telegram_client.send_text_message(chat_id=chat_id, message=message)
+            setattr(appt, flag_attr, True)
+            await db.commit()
+            logger.info(
+                "reminder_sent kind=%s appt=%s chat=%s business=%s",
+                label, appt.id, chat_id, appt.business_id,
+            )
+        except Exception:
+            logger.exception("reminder_send_failed kind=%s appt=%s chat=%s", label, appt.id, chat_id)
 
 async def process_waitlist_expiration():
     """Expire waitlist entries that haven't been fulfilled"""
