@@ -42,3 +42,14 @@ Ver `docs/PHASE6_BACKLOG.md` (pagos, planes, roles, CI/CD ampliado, etc.).
 - **Deuda pendiente**: migrar el almacenamiento a UTC real (9:00 AM local = 13:00 UTC)
   tocando disponibilidad, recordatorios, dashboard y owner channel + migración de
   datos existentes. Cambio arquitectónico para después del MVP.
+
+## Decisión 2026-08-29: cron de recordatorios in-process
+
+- Se revierte la dirección de "cron externo" de fase 4 para los recordatorios: el
+  job corre **in-process** (APScheduler, cada 15 min) dentro del app siempre
+  encendido (webhook) — a pedido del usuario, para no fragmentar la estructura ni
+  agregar servicios externos. Costo: $0 extra (el app ya corre 24/7).
+- Activación: `CRON_EXTERNAL=false` en Railway (dashboard). Los endpoints
+  `/internal/jobs/*` se mantienen como trigger manual/pruebas.
+- Precisión de recordatorios: ±15 min (ventanas 24h±15m / 2h±15m contra el reloj
+  operativo `_upcoming_now()`, convenio wall-clock-as-UTC).
