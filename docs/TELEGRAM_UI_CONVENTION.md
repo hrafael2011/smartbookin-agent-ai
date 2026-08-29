@@ -61,10 +61,22 @@ sobrecarga de "1 = Corte" vs "1 = viernes" vs "1 = 9:00 AM").
 | `modify_appt_<id>` | `modify_appt_12` | Cita a modificar (id real de BD) |
 | `resume_yes` / `resume_no` | — | Continuar / cerrar sesión vencida |
 
+**Token de pantalla (sufijo `|<token>`)**: cada mensaje con teclado rota un token
+opaco (`secrets.token_hex(4)`), persistido en `context.screen_token` por la capa de
+envío de Telegram (`telegram_inbound._send_bot_reply`), y lo agrega como sufijo a
+cada callback (`time_2026-08-29_09:00|a1b2`). Al recibir un callback, el dispatch
+compara el token contra `screen_token`: mismatch = botón de un mensaje anterior =
+**bloqueado** ("Esa opción ya no está vigente" + menú fresco). Callbacks sin token
+(texto tipeado) usan la validación por estado. La idempotencia de webhook deduplica
+por `callback_query.id` (único por toque), no por id del mensaje.
+
 **Validación**: cada callback se despacha **solo si corresponde al paso actual del
 flujo** (`_callback_valid_for_state` en `guided_menu_router`). Un callback huérfano
 (botón viejo pulsado fuera de contexto) responde "Esa opción ya no está vigente" y
-muestra el menú.
+muestra el menú. Los namespaces `service_*` / `cancel_appt_*` / `modify_appt_*`
+también se admiten desde `idle` (catálogo de servicios y pantalla "ver mis citas");
+sus dispatch validan la propiedad de la cita (`get_customer_appointment`, que solo
+devuelve citas activas `P`/`C`).
 
 ## 4. Mapa pantalla → teclado
 
@@ -93,7 +105,15 @@ pantalla visible era el menú principal (`last_screen == "main_menu"`, mantenido
 `conversation_manager.mark_main_menu`). En cualquier otro caso caen al pipeline NLU
 (fallback ambiguo → menú con botones).
 
-## 6. Port a WhatsApp Business API (futuro)
+## 6. Horarios y fechas pasados
+
+`get_availability` nunca ofrece slots con `start_datetime <= _upcoming_now()`
+(reloj operativo del negocio estampado como UTC — el convenio wall-clock-as-UTC del
+almacenamiento). El filtro es incondicional (aplica a cualquier día): tampoco se
+puede agendar en fechas pasadas por texto libre, y los días con solo horas vencidas
+dejan de contarse como disponibles en el calendario.
+
+## 7. Port a WhatsApp Business API (futuro)
 
 Cada botón de Telegram mapea 1:1 a un componente de WhatsApp usando el **mismo id**:
 
@@ -105,8 +125,13 @@ Cada botón de Telegram mapea 1:1 a un componente de WhatsApp usando el **mismo 
 Reglas para que el dispatch sea compartido sin duplicar código por canal:
 
 1. El `id` de `interactive.list_reply` / `button_reply` **es el mismo string** que
-   el `callback_data` de Telegram (ej. `day_2026-08-29`, `service_3`).
+   la parte semántica del `callback_data` de Telegram (ej. `day_2026-08-29`,
+   `service_3`) — **sin** el sufijo de token (el token es solo de la capa Telegram;
+   la validación de estado aplica igual en WhatsApp).
 2. La clasificación de la selección vive en un solo lugar:
-   `telegram_ui.parse_inline_callback(text) -> {ns, value}`.
+   `telegram_ui.parse_inline_callback(text) -> {ns, value, token}`.
 3. El routing/estados no mencionan el canal: un webhook de WhatsApp que reciba
    `day_2026-08-29` debe terminar llamando al mismo dispatch que Telegram.
+4. `BotReply.text_plain` es el texto alternativo para canales sin teclado: WhatsApp
+   envía el menú **numerado** (sin botones), mientras Telegram envía el texto corto
+   + teclado. El canal decide qué campo serializar.
