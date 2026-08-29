@@ -106,3 +106,24 @@ def test_send_inline_keyboard_builds_rows(monkeypatch):
 
     assert captured["json"]["reply_markup"]["inline_keyboard"] == rows
     assert captured["json"]["text"] == "¿Qué servicio?"
+
+
+# ── callback_query: dedupe por id de toque (S1) ───────────────────────────────
+
+def test_callback_query_uses_callback_id_for_dedupe():
+    payload = {
+        "callback_query": {
+            "id": "123456789",
+            "message": {"message_id": "99", "chat": {"id": "555"}, "date": 1700000000},
+            "data": "service_1|a1b2",
+        }
+    }
+    msg = telegram_client.extract_message_from_webhook(payload)
+    assert msg["message_id"] == "123456789"  # id del toque, no del mensaje
+    assert msg["button_payload"] == "service_1|a1b2"
+    assert msg["from"] == "555"
+
+
+def test_callback_query_without_message_is_ignored():
+    payload = {"callback_query": {"id": "1", "data": "nav_menu"}}
+    assert telegram_client.extract_message_from_webhook(payload) is None

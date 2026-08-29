@@ -52,6 +52,11 @@ def _screen_token(captured):
     return None
 
 
+def _screen_tokens(captured):
+    """Todos los screen_token persistidos, en orden de envío."""
+    return [update["screen_token"] for update in captured["updates"] if "screen_token" in update]
+
+
 async def test_telegram_greeting_sends_main_menu_keyboard(monkeypatch):
     sent = []
     captured = {}
@@ -109,4 +114,33 @@ async def test_telegram_callback_nav_menu_sends_main_menu_keyboard(monkeypatch):
     assert last["reply_markup"]["inline_keyboard"] == telegram_ui.with_screen_token(
         telegram_ui.main_menu_keyboard(), token
     )
-    assert "ya no está vigente" not in last["message"] or "Elegí" not in last["message"]
+    assert "ya no está vigente" not in last["message"]
+
+
+async def test_screen_token_rotates_between_consecutive_sends(monkeypatch):
+    sent = []
+    captured = {}
+    _base_mocks(monkeypatch, captured)
+    _capture_send(monkeypatch, sent)
+    monkeypatch.setattr(
+        telegram_inbound.telegram_client,
+        "extract_message_from_webhook",
+        lambda _payload: {"from": "123", "text": "hola"},
+    )
+
+    async def fail_nlu(*_a, **_k):
+        raise AssertionError("NLU should not run for deterministic menu greeting")
+
+    monkeypatch.setattr(telegram_inbound, "_run_nlu_pipeline", fail_nlu)
+
+    await telegram_inbound.process_telegram_update({"message": {"text": "hola"}})
+    await telegram_inbound.process_telegram_update({"message": {"text": "hola"}})
+
+    tokens = _screen_tokens(captured)
+    assert len(sent) == 2
+    assert len(tokens) == 2, f"expected two screen_token rotations, got {tokens}"
+    assert tokens[0] != tokens[1], "el token debe rotar entre envíos consecutivos"
+    for i, token in enumerate(tokens):
+        assert sent[i]["reply_markup"]["inline_keyboard"] == telegram_ui.with_screen_token(
+            telegram_ui.main_menu_keyboard(), token
+        )

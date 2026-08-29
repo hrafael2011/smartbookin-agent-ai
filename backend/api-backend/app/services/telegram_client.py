@@ -102,18 +102,23 @@ class TelegramClient:
 
             if "callback_query" in payload:
                 callback = payload["callback_query"]
-                message = callback.get("message", {})
+                message = callback.get("message") or {}
                 chat_id = str(message.get("chat", {}).get("id"))
-                
+                if not message or not chat_id or chat_id == "None":
+                    logger.warning(
+                        "telegram callback_query sin message/chat; ignorado (data=%s)",
+                        (callback.get("data") or "")[:50],
+                    )
+                    return None
                 return {
-                    "message_id": str(message.get("message_id")),
+                    "message_id": str(callback.get("id")),  # único por toque (dedupe)
                     "from": chat_id,
                     "timestamp": str(message.get("date")),
                     "type": "interactive",
                     "button_payload": callback.get("data"),
-                    "text": callback.get("data"), # Usamos el data como texto para el NLU si es necesario
+                    "text": callback.get("data"),
                 }
-                
+
             return None
 
         except (KeyError, IndexError, TypeError) as e:

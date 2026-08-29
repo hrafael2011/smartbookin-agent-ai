@@ -68,14 +68,6 @@ async def _reply_invalid_invite_attempt(chat_id: str, telegram_user_id: str) -> 
     )
 
 
-def _reply_markup_for(response) -> Optional[dict]:
-    """Convierte BotReply.keyboard (filas de botones) en reply_markup de Telegram."""
-    keyboard = getattr(response, "keyboard", None)
-    if not keyboard:
-        return None
-    return {"inline_keyboard": keyboard}
-
-
 async def _send_bot_reply(
     chat_id: str, business_id: int, user_key: str, reply
 ) -> Dict:
@@ -376,14 +368,7 @@ async def process_telegram_update(payload: dict) -> dict:
                     await conversation_manager.mark_main_menu(business_id, user_key)
                     await conversation_manager.save_message(business_id, user_key, "user", text_in)
                     await conversation_manager.save_message(business_id, user_key, "assistant", resp)
-                    if getattr(resp, "keyboard", None):
-                        await _send_bot_reply(chat_id, business_id, user_key, resp)
-                    else:
-                        await telegram_client.send_text_message(
-                            chat_id=chat_id,
-                            message=str(resp),
-                            reply_markup=_reply_markup_for(resp),
-                        )
+                    await _send_bot_reply(chat_id, business_id, user_key, resp)
                 return {"status": "ok"}
 
             # Reject empty messages
