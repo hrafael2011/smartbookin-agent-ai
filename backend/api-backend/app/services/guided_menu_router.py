@@ -395,7 +395,8 @@ def _callback_valid_for_state(ns: str, context: dict) -> bool:
     if ns in ("nav", "menu"):
         return True
     if ns == "service":
-        return intent == "book_appointment"
+        # Válido en flujo de reserva activo o desde idle (catálogo de servicios)
+        return intent in ("book_appointment", None)
     if ns == "day":
         if intent == "book_appointment":
             return state in ("awaiting_date", "booking_current_week", "booking_day")
@@ -411,11 +412,13 @@ def _callback_valid_for_state(ns: str, context: dict) -> bool:
     if ns == "confirm":
         return state == "awaiting_booking_confirmation"
     if ns == "cancel_appt":
-        return intent == "cancel_appointment"
+        # Válido en el flujo de cancelación o desde idle ("ver mis citas")
+        return intent in ("cancel_appointment", None)
     if ns == "cancel_confirm":
         return state == "awaiting_cancel_confirmation"
     if ns == "modify_appt":
-        return intent == "modify_appointment"
+        # Válido en el flujo de modificación o desde idle ("ver mis citas")
+        return intent in ("modify_appointment", None)
     if ns == "month":
         return state == "booking_month"
     if ns == "month_browse":

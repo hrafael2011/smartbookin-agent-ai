@@ -52,11 +52,12 @@ async def handle_check_appointment(nlu_result: Dict, context: Dict) -> BotReply:
                 f"No tienes citas próximas programadas, {customer_name}. ¿Te gustaría agendar una? 😊"
             )
 
-        # Formatear respuesta
+        # Formatear respuesta (máximo 5 citas visibles)
+        visible = appointments[:5]
         lines = [f"Estas son tus citas próximas, {customer_name}:"]
         lines.append("")
 
-        for i, appt in enumerate(appointments[:5], 1):  # Máximo 5 citas
+        for i, appt in enumerate(visible, 1):
             # Parsear datetime
             start_at = datetime.fromisoformat(appt['start_at'].replace('Z', '+00:00'))
 
@@ -83,11 +84,11 @@ async def handle_check_appointment(nlu_result: Dict, context: Dict) -> BotReply:
             lines.append("")
 
         if len(appointments) > 5:
-            lines.append(f"... y {len(appointments) - 5} citas más")
+            extra = len(appointments) - 5
+            lines.append(f"... y {extra} {'cita más' if extra == 1 else 'citas más'}")
             lines.append("")
 
         # Acciones directas sobre las primeras citas: una fila por cita visible
-        visible = appointments[:5]
         action_rows = []
         for appt in visible:
             label = telegram_ui.short_appointment_label(appt)

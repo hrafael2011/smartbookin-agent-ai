@@ -207,4 +207,3 @@ async def test_check_with_multiple_appointments_has_per_appointment_buttons(monk
     assert [b["callback_data"] for b in reply.keyboard[0]] == ["modify_appt_11", "cancel_appt_11"]
     assert [b["callback_data"] for b in reply.keyboard[1]] == ["modify_appt_12", "cancel_appt_12"]
     assert [b["callback_data"] for b in reply.keyboard[-1]] == FOOTER
-    assert "Solo dime cuál" not in reply

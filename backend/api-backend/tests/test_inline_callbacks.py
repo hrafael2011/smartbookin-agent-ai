@@ -214,6 +214,30 @@ async def test_service_callback_sets_service_and_continues(monkeypatch):
     assert captured["book"]["pending_data"]["service_id"] == 1
 
 
+@pytest.mark.asyncio
+async def test_service_callback_from_idle_catalog_starts_booking(monkeypatch):
+    captured = {}
+
+    async def fake_services(_bid):
+        return [{"id": 1, "name": "Corte", "price": 10, "duration_minutes": 30}]
+
+    async def fake_update(_b, _k, payload):
+        captured.setdefault("updates", []).append(payload)
+
+    async def fake_book(_nlu, context):
+        captured["book"] = context
+        return BotReply("continuamos")
+
+    monkeypatch.setattr(router.db_service, "get_business_services", fake_services)
+    monkeypatch.setattr(router.conversation_manager, "update_context", fake_update)
+    monkeypatch.setattr(router, "handle_book_appointment", fake_book)
+
+    await router.execute_guided_route(1, "tg:1", cb("service", "1"), ctx(pending_data={}))
+
+    assert captured["book"]["pending_data"]["service"] == "Corte"
+    assert captured["book"]["pending_data"]["service_id"] == 1
+
+
 # ── Días (day_*) ──────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -389,6 +413,25 @@ async def test_cancel_appt_callback_shows_confirm_screen(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_cancel_appt_callback_from_idle_check_screen_works(monkeypatch):
+    captured = {}
+
+    async def fake_get(_aid, _cid):
+        return {"id": 11, "service_name": "Corte", "start_at": "2026-08-28T09:00:00+00:00", "status": "C", "service_id": 1}
+
+    async def fake_update(_b, _k, payload):
+        captured.setdefault("updates", []).append(payload)
+
+    monkeypatch.setattr(router.db_service, "get_customer_appointment", fake_get)
+    monkeypatch.setattr(router.conversation_manager, "update_context", fake_update)
+
+    reply = await router.execute_guided_route(1, "tg:1", cb("cancel_appt", "11"), ctx())
+
+    assert "¿Confirmás" in reply
+    assert captured["updates"][-1]["state"] == "awaiting_cancel_confirmation"
+
+
+@pytest.mark.asyncio
 async def test_cancel_confirm_yes_cancels_appointment(monkeypatch):
     captured = {}
 
@@ -451,6 +494,29 @@ async def test_modify_appt_callback_asks_new_date_with_days(monkeypatch):
     assert [b["callback_data"] for b in reply.keyboard[-1]] == ["nav_back", "nav_menu", "nav_exit"]
     assert captured["updates"][-1]["state"] == "awaiting_new_date"
     assert captured["updates"][-1]["pending_data"]["selected_appointment_id"] == 12
+
+
+@pytest.mark.asyncio
+async def test_modify_appt_callback_from_idle_check_screen_works(monkeypatch):
+    captured = {}
+
+    async def fake_get(_aid, _cid):
+        return {"id": 12, "service_name": "Corte", "start_at": "2026-08-28T09:00:00+00:00", "status": "C", "service_id": 1}
+
+    async def fake_days(*_a, **_k):
+        return [{"date": "2026-08-29", "label": "Vie 29"}]
+
+    async def fake_update(_b, _k, payload):
+        captured.setdefault("updates", []).append(payload)
+
+    monkeypatch.setattr(router.db_service, "get_customer_appointment", fake_get)
+    monkeypatch.setattr(router.db_service, "get_available_days_in_range", fake_days)
+    monkeypatch.setattr(router.conversation_manager, "update_context", fake_update)
+
+    reply = await router.execute_guided_route(1, "tg:1", cb("modify_appt", "12"), ctx())
+
+    assert reply.keyboard[0][0]["callback_data"] == "day_2026-08-29"
+    assert captured["updates"][-1]["state"] == "awaiting_new_date"
 
 
 # ── Sesión vencida (resume_*) ─────────────────────────────────────────────────
