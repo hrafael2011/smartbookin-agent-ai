@@ -409,33 +409,9 @@ async def handle_modify_appointment(nlu_result: Dict, context: Dict) -> str:
         raw_user = (nlu_result.get("_raw_user_text") or "").strip()
         time_ent = str((entities or {}).get("time") or "")
 
-        # T029: intercept page navigation keys before slot resolution
         current_page = int(pending_data.get("slot_page") or 0)
         page_info = _paginate_slots(available_slots, page=current_page)
         slots_pending = {**pending_data, "date": str(pending_data.get("new_date") or "")}
-
-        if raw_user == "8" and page_info["has_next"]:
-            new_page = current_page + 1
-            updated_pending = {**pending_data, "slot_page": new_page}
-            await conversation_manager.update_context(
-                business_id, phone_number, {"pending_data": updated_pending}
-            )
-            return render_slots_reply(
-                {**updated_pending, "date": str(pending_data.get("new_date") or "")},
-                page=new_page,
-                header=f"Página {new_page + 1}:",
-            )
-        if raw_user == "7" and page_info["has_prev"]:
-            new_page = current_page - 1
-            updated_pending = {**pending_data, "slot_page": new_page}
-            await conversation_manager.update_context(
-                business_id, phone_number, {"pending_data": updated_pending}
-            )
-            return render_slots_reply(
-                {**updated_pending, "date": str(pending_data.get("new_date") or "")},
-                page=new_page,
-                header=f"Página {new_page + 1}:",
-            )
 
         page_slots = page_info["slots"]
         selected_slot = _select_modify_slot(page_slots, raw_user, time_ent)

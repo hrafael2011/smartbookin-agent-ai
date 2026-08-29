@@ -28,17 +28,6 @@ def _paginate_slots(slots: List[Dict], page: int, page_size: int = _SLOTS_PAGE_S
     return telegram_ui.paginate_slots(slots, page=page, page_size=page_size)
 
 
-def _slots_short_list(page_info: Dict) -> str:
-    lines = []
-    for i, slot in enumerate(page_info["slots"], 1):
-        lines.append(f"  {i}. {slot.get('start_time')}")
-    if page_info.get("has_prev"):
-        lines.append("  7) ← Página anterior")
-    if page_info.get("has_next"):
-        lines.append("  8) Siguiente →")
-    return "\n".join(lines)
-
-
 def render_slots_reply(pending_data: Dict, page: int = 0, header: str = "") -> BotReply:
     """Grilla de horarios (3 columnas, paginada) + footer de navegación."""
     slots = pending_data.get("available_slots") or []
@@ -643,23 +632,6 @@ async def handle_slot_selection(nlu_result: Dict, context: Dict) -> str:
 
     current_page = int(pending_data.get("slot_page") or 0)
     page_info = _paginate_slots(available_slots, page=current_page)
-
-    # T028: intercept page navigation keys before slot resolution
-    raw_nav = str(nlu_result.get("_raw_user_text") or "").strip()
-    if raw_nav == "8" and page_info["has_next"]:
-        new_page = current_page + 1
-        updated_pending = {**pending_data, "slot_page": new_page}
-        await conversation_manager.update_context(
-            business_id, phone_number, {"pending_data": updated_pending}
-        )
-        return render_slots_reply(updated_pending, page=new_page, header=f"Página {new_page + 1}:")
-    if raw_nav == "7" and page_info["has_prev"]:
-        new_page = current_page - 1
-        updated_pending = {**pending_data, "slot_page": new_page}
-        await conversation_manager.update_context(
-            business_id, phone_number, {"pending_data": updated_pending}
-        )
-        return render_slots_reply(updated_pending, page=new_page, header=f"Página {new_page + 1}:")
 
     page_slots = page_info["slots"]
     time_entity = nlu_result.get("entities", {}).get("time")

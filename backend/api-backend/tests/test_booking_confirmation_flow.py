@@ -881,23 +881,8 @@ def test_user_selects_suggested_day(monkeypatch):
 
 # --- Tests spec 004 T030: slot pagination ---
 
-def test_slot_pagination_shows_next_button(monkeypatch):
-    """When slots > page_size, _slots_short_list shows '8) Siguiente →'."""
-    from app.handlers.booking_handler import _paginate_slots, _slots_short_list, _SLOTS_PAGE_SIZE
-
-    slots = [
-        {"start_time": f"{9+i}:00 AM", "start_datetime": f"2026-06-10T{9+i:02d}:00:00", "end_datetime": f"2026-06-10T{9+i:02d}:30:00"}
-        for i in range(_SLOTS_PAGE_SIZE + 2)
-    ]
-    page_info = _paginate_slots(slots, page=0)
-    rendered = _slots_short_list(page_info)
-
-    assert "8)" in rendered and "iguiente" in rendered
-    assert "7)" not in rendered  # no prev on first page
-
-
-def test_slot_page_navigation_forward(monkeypatch):
-    """Raw input '8' with has_next → slot_page incremented, new page shown."""
+def test_text_eight_selects_slot_8_on_page_0(monkeypatch):
+    """Raw input '8' resolves to the 8th slot of the current page (index 7), no page nav."""
     import asyncio
     from app.handlers import booking_handler
     from app.handlers.booking_handler import _SLOTS_PAGE_SIZE
@@ -916,7 +901,7 @@ def test_slot_page_navigation_forward(monkeypatch):
                 "start_datetime": f"2026-06-10T{9+i:02d}:00:00",
                 "end_datetime": f"2026-06-10T{9+i:02d}:30:00",
             }
-            for i in range(_SLOTS_PAGE_SIZE + 2)
+            for i in range(_SLOTS_PAGE_SIZE)
         ]
         context = {
             "business_id": 1,
@@ -932,54 +917,12 @@ def test_slot_page_navigation_forward(monkeypatch):
             },
         }
         nlu = {"_raw_user_text": "8", "entities": {}}
-        resp = await booking_handler.handle_slot_selection(nlu, context)
+        await booking_handler.handle_slot_selection(nlu, context)
 
-        assert captured.get("pending_data", {}).get("slot_page") == 1
-        assert "página 2" in resp.lower() or "2" in resp
-
-    asyncio.run(_run())
-
-
-def test_slot_page_navigation_backward(monkeypatch):
-    """Raw input '7' on page 1 with has_prev → slot_page decremented."""
-    import asyncio
-    from app.handlers import booking_handler
-    from app.handlers.booking_handler import _SLOTS_PAGE_SIZE
-
-    async def _run():
-        captured = {}
-
-        async def fake_update(_bid, _phone, payload):
-            captured.update(payload)
-
-        monkeypatch.setattr(booking_handler.conversation_manager, "update_context", fake_update)
-
-        slots = [
-            {
-                "start_time": f"{9+i}:00 AM",
-                "start_datetime": f"2026-06-10T{9+i:02d}:00:00",
-                "end_datetime": f"2026-06-10T{9+i:02d}:30:00",
-            }
-            for i in range(_SLOTS_PAGE_SIZE + 2)
-        ]
-        context = {
-            "business_id": 1,
-            "phone_number": "tg:1",
-            "customer_id": 7,
-            "customer_name": "Ana",
-            "pending_data": {
-                "service": "Corte",
-                "service_id": 1,
-                "date": "2026-06-10",
-                "available_slots": slots,
-                "slot_page": 1,
-            },
-        }
-        nlu = {"_raw_user_text": "7", "entities": {}}
-        resp = await booking_handler.handle_slot_selection(nlu, context)
-
+        selected = captured.get("pending_data", {}).get("selected_slot")
+        assert selected is not None
+        assert selected["start_time"] == slots[7]["start_time"]
         assert captured.get("pending_data", {}).get("slot_page") == 0
-        assert "página 1" in resp.lower() or "1" in resp
 
     asyncio.run(_run())
 
