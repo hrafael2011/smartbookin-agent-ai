@@ -1,3 +1,4 @@
+import html
 import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.future import select
@@ -5,6 +6,7 @@ from app.core.database import AsyncSessionLocal
 from app.models import Appointment, Customer, Service, WaitlistEntry, Business
 from app.services import db_service
 from app.services.telegram_client import telegram_client
+from app.utils.date_parse import format_date_human_es
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +56,13 @@ async def _send_window_reminders(db, window_start, window_end, label, flag_attr)
         chat_id = phone[3:]
         message = (
             "📅 <b>Recordatorio de tu cita</b>\n\n"
-            f"📍 {(business.name if business else '') or 'Negocio'}\n"
-            f"✂️ {service.name if service else 'Servicio'}\n"
-            f"📅 {appt.date.strftime('%A %d de %B')}\n"
+            f"📍 {html.escape((business.name if business else '') or 'Negocio')}\n"
+            f"✂️ {html.escape(service.name if service else 'Servicio')}\n"
+            f"📅 {format_date_human_es(appt.date.strftime('%Y-%m-%d'))}\n"
             f"⏰ {appt.date.strftime('%I:%M %p').lstrip('0')}\n"
         )
         if business and business.address:
-            message += f"    {business.address}\n"
+            message += f"    {html.escape(business.address)}\n"
         try:
             await telegram_client.send_text_message(chat_id=chat_id, message=message)
             setattr(appt, flag_attr, True)
@@ -71,6 +73,7 @@ async def _send_window_reminders(db, window_start, window_end, label, flag_attr)
             )
         except Exception:
             logger.exception("reminder_send_failed kind=%s appt=%s chat=%s", label, appt.id, chat_id)
+            await db.rollback()
 
 async def process_waitlist_expiration():
     """Expire waitlist entries that haven't been fulfilled"""

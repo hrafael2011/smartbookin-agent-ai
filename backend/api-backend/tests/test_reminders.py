@@ -19,10 +19,10 @@ def test_reminder_windows_24h_and_2h():
 
 
 class _Row:
-    def __init__(self, appt_id=5, status="C", reminder_24h=False, reminder_2h=False, tg="tg:12345", service="Corte"):
+    def __init__(self, appt_id=5, status="C", reminder_24h=False, reminder_2h=False, tg="tg:12345", service="Corte", date=None):
         self.appointment = SimpleNamespace(
             id=appt_id, business_id=1, customer_id=7, service_id=1,
-            date=NOW + timedelta(hours=23, minutes=50),  # dentro de la ventana 24h
+            date=date if date is not None else NOW + timedelta(hours=23, minutes=50),  # default: dentro de la ventana 24h
             status=status, reminder_24h_sent=reminder_24h, reminder_2h_sent=reminder_2h,
         )
         self.customer = SimpleNamespace(phone_number=tg)
@@ -42,7 +42,12 @@ class FakeResult:
 
 class FakeSession:
     def __init__(self, rows):
-        self._rows = rows
+        # rows: lista plana de _Row (una sola pasada) o lista de listas (una por
+        # execute, p. ej. [rows_24h, rows_2h]); cada lista se consume en su execute.
+        if rows and isinstance(rows[0], list):
+            self._passes = [list(r) for r in rows]
+        else:
+            self._passes = [list(rows)]
         self.committed = False
         self.executed = []
 
@@ -54,14 +59,14 @@ class FakeSession:
 
     async def execute(self, query):
         self.executed.append(query)
-        # La fila se "consume" tras el primer execute: en producción la ventana 2h
-        # no devolvería una fila ya procesada (y marcada) por la ventana 24h.
-        rows = self._rows
-        self._rows = []
+        rows = self._passes.pop(0) if self._passes else []
         return FakeResult(rows)
 
     async def commit(self):
         self.committed = True
+
+    async def rollback(self):
+        pass
 
 
 def _run(rows, monkeypatch):
@@ -90,15 +95,18 @@ def test_sends_24h_reminder_to_tg_chat(monkeypatch):
 
 
 def test_marks_flag_only_on_successful_send(monkeypatch):
-    sent, session = _run([_Row()], monkeypatch)
+    row = _Row()
+    sent, session = _run([row], monkeypatch)
     assert sent and session.committed is True
+    assert row.appointment.reminder_24h_sent is True
 
 
 def test_send_failure_does_not_mark_flag(monkeypatch):
     async def boom(*_a, **_k):
         raise RuntimeError("telegram down")
 
-    session = FakeSession([_Row()])
+    row = _Row()
+    session = FakeSession([row])
     monkeypatch.setattr(background_tasks.db_service, "_upcoming_now", lambda: NOW)
     monkeypatch.setattr(background_tasks.telegram_client, "send_text_message", boom)
     monkeypatch.setattr(background_tasks, "AsyncSessionLocal", lambda: session)
@@ -107,6 +115,7 @@ def test_send_failure_does_not_mark_flag(monkeypatch):
     asyncio.run(background_tasks.process_appointment_reminders())
 
     assert session.committed is False
+    assert row.appointment.reminder_24h_sent is False
 
 
 def test_non_tg_phone_is_skipped(monkeypatch):
@@ -117,8 +126,19 @@ def test_non_tg_phone_is_skipped(monkeypatch):
     assert session.committed is False
 
 
+def test_sends_2h_reminder_and_marks_flag(monkeypatch):
+    row = _Row(date=NOW + timedelta(hours=1, minutes=50))  # dentro de la ventana 2h
+    sent, session = _run([[], [row]], monkeypatch)
+    assert len(sent) == 1
+    chat_id, message = sent[0]
+    assert chat_id == "12345"
+    assert "Barbería La Excelencia" in message
+    assert row.appointment.reminder_2h_sent is True
+    assert session.committed is True
+
+
 def test_query_filters_windows_and_unset_flags(monkeypatch):
-    from sqlalchemy.sql.elements import BindParameter
+    from sqlalchemy.sql.elements import BindParameter, False_, True_
 
     session = FakeSession([])
 
@@ -138,6 +158,10 @@ def test_query_filters_windows_and_unset_flags(monkeypatch):
                 yield from value
             else:
                 yield value
+        elif isinstance(clause, False_):
+            yield False
+        elif isinstance(clause, True_):
+            yield True
         elif hasattr(clause, "get_children"):
             for c in clause.get_children():
                 yield from _walk(c)
@@ -145,3 +169,4 @@ def test_query_filters_windows_and_unset_flags(monkeypatch):
     values = list(_walk(session.executed[0].whereclause))
     assert NOW + timedelta(hours=23, minutes=45) in values
     assert NOW + timedelta(hours=24, minutes=15) in values
+    assert False in values  # filtro flag == False (solo citas sin recordatorio previo)
