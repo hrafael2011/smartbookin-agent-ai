@@ -28,6 +28,7 @@ from typing import Dict, List, Optional
 
 from app.config import config
 from app.core.response_builder import BotReply, KeyboardRow
+from app.utils.conversation_routing import guided_menu
 
 _WEEKDAYS_ABBR = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
 
@@ -78,11 +79,14 @@ def guided_menu_short(customer_name: str = "", *, returning: bool = False) -> st
 
 
 def main_menu_reply(prefix: str = "", customer_name: str = "") -> BotReply:
-    """Mensaje del menú principal (texto corto + teclado), con prefix opcional."""
+    """Mensaje del menú principal: texto corto + teclado; text_plain numerado para canales sin teclado."""
     text = guided_menu_short(customer_name)
     if prefix:
         text = f"{prefix}\n\n{text}"
-    return BotReply(text, keyboard=main_menu_keyboard())
+    plain = guided_menu(customer_name)
+    if prefix:
+        plain = f"{prefix}\n\n{plain}"
+    return BotReply(text, keyboard=main_menu_keyboard(), text_plain=plain)
 
 
 def guided_menu_reply(customer_name: str = "") -> BotReply:

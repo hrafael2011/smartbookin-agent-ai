@@ -254,7 +254,8 @@ async def whatsapp_webhook(request: Request):
             await conversation_manager.save_message(
                 business_id, phone_number, "user", message_text
             )
-            await whatsapp_client.send_text_message(to=phone_number, message=resp)
+            out_text = getattr(resp, "text_plain", None) or str(resp)
+            await whatsapp_client.send_text_message(to=phone_number, message=out_text)
             await conversation_manager.save_message(
                 business_id, phone_number, "assistant", resp
             )
@@ -270,7 +271,8 @@ async def whatsapp_webhook(request: Request):
         )
         response_text = await run_conversation_turn(business_id, phone_number, message_text)
         logger.info("wa_route ai_pipeline business=%s user=%s", business_id, phone_number)
-        await whatsapp_client.send_text_message(to=phone_number, message=response_text)
+        out_text = getattr(response_text, "text_plain", None) or str(response_text)
+        await whatsapp_client.send_text_message(to=phone_number, message=out_text)
         return {"status": "ok"}
 
     except Exception as e:

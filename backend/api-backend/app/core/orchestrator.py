@@ -36,7 +36,7 @@ from app.utils.flow_interpreter import (
     user_message_looks_like_booking_correction,
 )
 from app.utils.time_parser import daypart_preference_hhmm_range, parse_time_candidates
-from app.utils.conversation_routing import guided_menu, is_short_confirmation_message, parse_menu_choice
+from app.utils.conversation_routing import is_short_confirmation_message, parse_menu_choice
 from app.utils import telegram_ui
 
 
@@ -252,9 +252,9 @@ async def run_conversation_turn(
                 },
             )
             await conversation_manager.mark_main_menu(business_id, user_key)
-            response_text = BotReply(
-                f"Entendido. Cerramos esa consulta.\n\n{guided_menu(context.get('customer_name') or '')}",
-                keyboard=telegram_ui.main_menu_keyboard(),
+            response_text = telegram_ui.main_menu_reply(
+                "Entendido. Cerramos esa consulta.",
+                context.get("customer_name") or "",
             )
         await conversation_manager.save_message(business_id, user_key, "assistant", response_text)
         return response_text
@@ -520,10 +520,9 @@ async def run_conversation_turn(
                 )
                 customer_name = post_context.get("customer_name") or ""
                 await conversation_manager.mark_main_menu(business_id, user_key)
-                response_text = BotReply(
-                    "No pude entender lo que necesitás después de varios intentos. "
-                    f"Te dejo el menú:\n\n{guided_menu(customer_name)}",
-                    keyboard=telegram_ui.main_menu_keyboard(),
+                response_text = telegram_ui.main_menu_reply(
+                    "No pude entender lo que necesitás después de varios intentos. Te dejo el menú:",
+                    customer_name,
                 )
             else:
                 await conversation_manager.update_context(
@@ -564,10 +563,9 @@ async def run_conversation_turn(
 
     if confidence < config.CONFIDENCE_THRESHOLD:
         await conversation_manager.mark_main_menu(business_id, user_key)
-        response_text = BotReply(
-            "No estoy seguro de qué querés hacer. Elegí una opción:\n\n"
-            f"{guided_menu(context.get('customer_name') or '')}",
-            keyboard=telegram_ui.main_menu_keyboard(),
+        response_text = telegram_ui.main_menu_reply(
+            "No estoy seguro de qué querés hacer. Elegí una opción:",
+            context.get("customer_name") or "",
         )
     elif intent == Intent.BOOK_APPOINTMENT.value:
         response_text = await handle_book_appointment(nlu_result, context)

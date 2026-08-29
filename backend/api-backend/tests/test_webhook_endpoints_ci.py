@@ -312,7 +312,7 @@ async def test_whatsapp_ai_quota_exhausted_still_allows_deterministic_menu(monke
 
     assert resp.get("status") == "ok"
     assert quota_calls[-1]["is_ai_message"] is False
-    assert "Elegí una opción" in sent_messages[-1]
+    assert "1) Agendar cita" in sent_messages[-1]
 
 
 async def test_whatsapp_total_quota_blocks_even_deterministic_menu(monkeypatch):

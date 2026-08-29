@@ -24,11 +24,14 @@ class BotReply(str):
     (comparaciones de strings, run_conversation_turn -> str, canal WhatsApp).
     El teclado es una lista de filas, cada fila una lista de botones
     ``{"text": "...", "callback_data": "..."}`` (Telegram Inline Keyboard).
+    ``text_plain`` es el texto alternativo para canales sin teclado (WhatsApp).
     """
 
     keyboard: Optional[KeyboardRow]
+    text_plain: Optional[str]
 
-    def __new__(cls, text: str, keyboard: Optional[KeyboardRow] = None) -> "BotReply":
+    def __new__(cls, text: str, keyboard: Optional[KeyboardRow] = None, text_plain: Optional[str] = None) -> "BotReply":
         obj = str.__new__(cls, text)
         obj.keyboard = keyboard
+        obj.text_plain = text_plain
         return obj

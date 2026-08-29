@@ -375,5 +375,5 @@ async def test_orchestrator_low_confidence_returns_guided_menu(monkeypatch):
 
     out = await orch.run_conversation_turn(1, "w:99", "no se algo raro")
 
-    assert "podés elegir una opción" in out.lower()
+    assert "elegí una opción" in out.lower()
     assert "respuesta abierta del modelo" not in out

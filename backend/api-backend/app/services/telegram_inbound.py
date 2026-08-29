@@ -33,7 +33,6 @@ from app.services.owner_command_router import (
 )
 from app.utils import telegram_ui
 from app.utils.conversation_routing import (
-    guided_menu,
     is_reserved_customer_display_name,
 )
 from app.core.orchestrator import run_conversation_turn
@@ -193,10 +192,7 @@ async def _handle_telegram_display_name_capture(
     )
     await conversation_manager.update_context(business_id, user_key, {"state": "idle"})
     nm = customer["name"] or display
-    return BotReply(
-        f"¡Gracias, <b>{nm}</b>! Ya te tengo presente.\n\n{guided_menu(nm)}",
-        keyboard=telegram_ui.main_menu_keyboard(),
-    )
+    return telegram_ui.main_menu_reply(f"¡Gracias, <b>{nm}</b>! Ya te tengo presente.", nm)
 
 
 async def _run_nlu_pipeline(business_id: int, user_key: str, message_text: str) -> str:

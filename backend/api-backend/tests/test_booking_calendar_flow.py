@@ -357,7 +357,7 @@ def test_calendar_input_invalid_increments_attempt_counter(monkeypatch):
 
         response = await orch.run_conversation_turn(1, "tg:1", "hola")
 
-        assert "menú" in response.lower() or "menu" in response.lower()
+        assert "Elegí una opción" in response
         assert state["state"] == "idle"
         assert state["attempts"] == {}
 

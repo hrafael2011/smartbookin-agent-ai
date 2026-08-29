@@ -477,7 +477,7 @@ def test_session_resume_no_clears_context(monkeypatch):
         resp = await orch.run_conversation_turn(1, "tg:1", "no")
 
         assert "cerramos esa consulta" in resp.lower()
-        assert "Podés elegir una opción" in resp
+        assert "Elegí una opción" in resp
         assert captured.get("state") == "idle"
         assert captured.get("current_intent") is None
         assert captured.get("pending_data") == {}

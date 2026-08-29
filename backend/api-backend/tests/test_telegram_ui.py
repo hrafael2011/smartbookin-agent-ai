@@ -65,6 +65,14 @@ def test_main_menu_reply_with_prefix():
     assert reply.keyboard == telegram_ui.main_menu_keyboard()
 
 
+def test_main_menu_reply_has_numbered_text_plain():
+    reply = telegram_ui.main_menu_reply("Listo.", "Ana")
+
+    assert "1) Agendar cita" in reply.text_plain
+    assert "Elegí una opción" in reply
+    assert reply.text_plain.startswith("Listo.")
+
+
 # ── Servicios ─────────────────────────────────────────────────────────────────
 
 def test_service_buttons_use_ids_two_per_row():
