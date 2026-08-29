@@ -10,7 +10,7 @@ def _slot(hour, minute=0, day="2026-08-29"):
     return {
         "start_time": f"{hour % 12 or 12}:{minute:02d} {'AM' if hour < 12 else 'PM'}",
         "start_datetime": f"{day}T{hour:02d}:{minute:02d}:00+00:00",
-        "end_datetime": f"{day}T{hour:02d}:{minute + 30:02d}:00+00:00",
+        "end_datetime": f"{day}T{hour:02d}:{(minute + 30) % 60:02d}:00+00:00",
     }
 
 
@@ -34,6 +34,11 @@ def test_filter_past_slots_keeps_future_days():
 def test_filter_past_slots_keeps_malformed_datetime():
     slots = [{"start_time": "9:00 AM", "start_datetime": "raro"}]
     assert db_service._filter_past_slots(slots, now=NOW) == slots
+
+
+def test_filter_past_slots_excludes_exact_now():
+    slots = [_slot(11, 46)]
+    assert db_service._filter_past_slots(slots, now=NOW) == []
 
 
 def test_get_availability_filters_past_slots(monkeypatch):

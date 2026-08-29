@@ -321,7 +321,7 @@ def _filter_past_slots(slots: List[Dict], now: Optional[datetime] = None) -> Lis
     for slot in slots:
         raw = str(slot.get("start_datetime") or "")
         try:
-            start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            start = _as_utc(datetime.fromisoformat(raw.replace("Z", "+00:00")))
         except ValueError:
             kept.append(slot)
             continue
