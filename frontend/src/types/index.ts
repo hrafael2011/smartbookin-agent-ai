@@ -66,6 +66,8 @@ export interface Business {
   longitude?: number
   timezone: string
   whatsapp_phone_number_id?: string
+  waba_id?: string
+  config_json?: Record<string, unknown>
   is_active: boolean
   daily_notification_enabled: boolean
   created_at: string

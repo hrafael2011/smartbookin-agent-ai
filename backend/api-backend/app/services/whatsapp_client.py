@@ -8,6 +8,20 @@ from typing import Dict, Optional, List
 from app.config import config
 
 
+class WhatsAppAPIError(Exception):
+    """Error de la Graph API de Meta (código + mensaje estructurado).
+
+    Códigos relevantes para recordatorios:
+        131026 plantilla no aprobada · 131047 fuera de ventana de 24h ·
+        131056 rate limit · 133010 número no registrado en WhatsApp.
+    """
+
+    def __init__(self, code: int, message: str):
+        super().__init__(f"[{code}] {message}")
+        self.code = code
+        self.message = message
+
+
 class WhatsAppClient:
     """Cliente para enviar mensajes por WhatsApp Business API"""
 
@@ -16,6 +30,19 @@ class WhatsAppClient:
         self.token = config.META_WABA_TOKEN
         self.app_secret = config.META_APP_SECRET
         self.timeout = 30
+
+    def _resolve_phone_number_id(self, phone_number_id: Optional[str]) -> str:
+        """Resuelve el phone_number_id del tenant para un envío.
+
+        Multi-tenant: el caller DEBE pasar el id del negocio. Sin él, se cae al
+        config global solo si está seteado con un valor real (dev/test); con el
+        placeholder o vacío → ValueError (enviar por el número de otro tenant
+        sería peor que fallar el envío).
+        """
+        pid = phone_number_id or config.META_PHONE_NUMBER_ID
+        if not pid or pid == "YOUR_PHONE_NUMBER_ID":
+            raise ValueError("phone_number_id requerido para envío multi-tenant")
+        return pid
 
     def validate_signature(self, payload: bytes, signature: str) -> bool:
         """
@@ -53,9 +80,7 @@ class WhatsAppClient:
         Returns:
             Response de Meta API
         """
-        # En producción, phone_number_id vendría de la configuración del negocio
-        if not phone_number_id:
-            phone_number_id = config.META_PHONE_NUMBER_ID
+        phone_number_id = self._resolve_phone_number_id(phone_number_id)
 
         url = f"{self.api_url}/{phone_number_id}/messages"
 
@@ -107,8 +132,7 @@ class WhatsAppClient:
                 ]
             )
         """
-        if not phone_number_id:
-            phone_number_id = config.META_PHONE_NUMBER_ID
+        phone_number_id = self._resolve_phone_number_id(phone_number_id)
 
         url = f"{self.api_url}/{phone_number_id}/messages"
 
@@ -145,6 +169,173 @@ class WhatsAppClient:
             response.raise_for_status()
             return response.json()
 
+    @staticmethod
+    def _clip(text: str, limit: int) -> str:
+        """Trunca a `limit` code points, dejando el último para «…»."""
+        if len(text) <= limit:
+            return text
+        return text[: limit - 1] + "…"
+
+    async def send_list_message(
+        self,
+        to: str,
+        body_text: str,
+        sections: List[Dict],
+        button_label: str = "Ver opciones",
+        header_text: Optional[str] = None,
+        phone_number_id: Optional[str] = None,
+    ) -> Dict:
+        """
+        Envía un List Message (interactive.type=list) con secciones y filas.
+
+        Límites de Meta: ≤10 filas totales (sumando secciones), 1..10 secciones,
+        título de fila y de sección ≤24 chars, botón ≤20 chars, header ≤60,
+        body ≤1024. Los títulos largos se truncan con «…»; ids >256 → error.
+        """
+        if not sections or len(sections) > 10:
+            raise ValueError("sections debe tener entre 1 y 10 secciones")
+        total_rows = sum(len(sec.get("rows", [])) for sec in sections)
+        if total_rows > 10:
+            raise ValueError("máximo 10 filas en total entre todas las secciones")
+        for sec in sections:
+            rows = sec.get("rows", [])
+            if not rows or len(rows) > 10:
+                raise ValueError("cada sección debe tener entre 1 y 10 filas")
+            for row in rows:
+                if len(row.get("id", "")) > 256:
+                    raise ValueError("el id de una fila excede 256 caracteres")
+
+        phone_number_id = self._resolve_phone_number_id(phone_number_id)
+
+        url = f"{self.api_url}/{phone_number_id}/messages"
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+
+        interactive: Dict = {
+            "type": "list",
+            "body": {"text": self._clip(body_text, 1024)},
+            "action": {
+                "button": self._clip(button_label, 20),
+                "sections": [
+                    {
+                        "title": self._clip(sec.get("title", "Opciones"), 24),
+                        "rows": [
+                            self._list_row(row)
+                            for row in sec["rows"]
+                        ],
+                    }
+                    for sec in sections
+                ],
+            },
+        }
+        if header_text:
+            interactive["header"] = {"type": "text", "text": self._clip(header_text, 60)}
+
+        data = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "interactive",
+            "interactive": interactive,
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(url, json=data, headers=headers)
+            response.raise_for_status()
+            return response.json()
+
+    @staticmethod
+    def _list_row(row: Dict) -> Dict:
+        """Fila de lista: id intacto, título recortado a 24, descripción a 72."""
+        result: Dict = {
+            "id": row["id"],
+            "title": WhatsAppClient._clip(row.get("title", ""), 24),
+        }
+        if row.get("description"):
+            result["description"] = row["description"][:72]
+        return result
+
+    async def send_template_message(
+        self,
+        to: str,
+        template_name: str,
+        language_code: str,
+        body_parameters: List[str],
+        button_payloads: Optional[Dict[int, str]] = None,
+        phone_number_id: Optional[str] = None,
+    ) -> Dict:
+        """
+        Envía una plantilla aprobada por Meta (type=template).
+
+        Args:
+            to: Número del destinatario (E.164).
+            template_name: Nombre de la plantilla aprobada (ej. appointment_reminder).
+            language_code: Código de idioma de la plantilla (ej. "es").
+            body_parameters: Valores de los placeholders {{1}}, {{2}}, … del cuerpo.
+            button_payloads: {índice_botón: payload} para botones quick_reply de la
+                plantilla (el payload del botón se rellena dinámicamente, ej. cita id).
+            phone_number_id: ID del número del negocio (multi-tenant).
+
+        Raises:
+            WhatsAppAPIError: con el código de error de Meta (131026, 131047, …).
+        """
+        phone_number_id = self._resolve_phone_number_id(phone_number_id)
+
+        url = f"{self.api_url}/{phone_number_id}/messages"
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+
+        components: List[Dict] = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": p} for p in body_parameters
+                ],
+            }
+        ]
+        if button_payloads:
+            for index, payload in sorted(button_payloads.items()):
+                components.append(
+                    {
+                        "type": "button",
+                        "sub_type": "quick_reply",
+                        "index": str(index),
+                        "parameters": [{"type": "payload", "payload": payload}],
+                    }
+                )
+
+        data = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": to,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language_code},
+                "components": components,
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(url, json=data, headers=headers)
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                try:
+                    err = response.json().get("error", {})
+                    code = int(err.get("code", 0))
+                    message = err.get("message", str(e))
+                except (ValueError, TypeError):
+                    code, message = 0, str(e)
+                raise WhatsAppAPIError(code=code, message=message) from e
+            return response.json()
+
     async def mark_as_read(
         self, message_id: str, phone_number_id: Optional[str] = None
     ) -> Dict:
@@ -158,8 +349,7 @@ class WhatsAppClient:
         Returns:
             Response de Meta API
         """
-        if not phone_number_id:
-            phone_number_id = config.META_PHONE_NUMBER_ID
+        phone_number_id = self._resolve_phone_number_id(phone_number_id)
 
         url = f"{self.api_url}/{phone_number_id}/messages"
 
@@ -194,7 +384,8 @@ class WhatsAppClient:
                 "type": "text",
                 "text": "Hola, necesito una cita",
                 "business_phone_number_id": "123456789",
-                "button_payload": "confirm_yes"  # Si es respuesta de botón
+                "button_payload": "confirm_yes",  # Si es respuesta de botón
+                "list_payload": "slot_2026-08-30_09:00"  # Si es respuesta de lista
             }
             o None si no es un mensaje válido
         """
@@ -206,6 +397,20 @@ class WhatsAppClient:
             # Obtener el mensaje
             messages = value.get("messages", [])
             if not messages:
+                # Sin mensajes: puede ser un status update (sent/delivered/read/failed).
+                statuses = value.get("statuses", [])
+                if statuses:
+                    status = statuses[0]
+                    return {
+                        "type": "status_update",
+                        "status": status.get("status"),
+                        "message_id": status.get("id"),
+                        "recipient_id": status.get("recipient_id"),
+                        "errors": status.get("errors"),
+                        "business_phone_number_id": value.get("metadata", {}).get(
+                            "phone_number_id"
+                        ),
+                    }
                 return None
 
             message = messages[0]
@@ -228,11 +433,13 @@ class WhatsAppClient:
                 result["text"] = message.get("text", {}).get("body", "")
 
             elif msg_type == "interactive":
-                # Respuesta de botón
+                # Respuesta de botón (button_reply) o de lista (list_reply)
                 interactive = message.get("interactive", {})
                 button_reply = interactive.get("button_reply", {})
+                list_reply = interactive.get("list_reply", {})
                 result["button_payload"] = button_reply.get("id")
-                result["text"] = button_reply.get("title", "")
+                result["list_payload"] = list_reply.get("id")
+                result["text"] = list_reply.get("title", "") or button_reply.get("title", "")
 
             elif msg_type == "button":
                 # Botón rápido (quick reply)

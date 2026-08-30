@@ -419,6 +419,10 @@ def _callback_valid_for_state(ns: str, context: dict) -> bool:
     if ns == "modify_appt":
         # Válido en el flujo de modificación o desde idle ("ver mis citas")
         return intent in ("modify_appointment", None)
+    if ns == "reminder_ack":
+        # Acuse de recordatorio: solo válido desde idle (el scheduler lo envía
+        # fuera de cualquier flujo; dentro de un flujo activo → stale).
+        return intent is None
     if ns == "month":
         return state == "booking_month"
     if ns == "month_browse":
@@ -615,6 +619,19 @@ async def _handle_inline_callback(
             "¿Confirmás la cancelación?",
             keyboard=telegram_ui.with_footer(telegram_ui.cancel_confirm_buttons()),
         )
+
+    if ns == "reminder_ack":
+        # Acuse del botón "Confirmar" del recordatorio (WhatsApp/Telegram):
+        # las citas nacen confirmadas (status C), así que no hay transición de
+        # estado — solo validar que la cita es del cliente y acusar.
+        appt = await db_service.get_customer_appointment(
+            int(value), int(context.get("customer_id") or 0)
+        )
+        if not appt:
+            return _stale_reply()
+        await _clear_to_idle(business_id, user_key)
+        await _mark_main_menu(business_id, user_key)
+        return telegram_ui.main_menu_reply("¡Perfecto, te esperamos! 🙂", customer_name)
 
     if ns == "cancel_confirm":
         appointment_id = int((context.get("pending_data") or {}).get("appointment_id") or 0)

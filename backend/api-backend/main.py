@@ -4,7 +4,7 @@ Agent Service - NLU con GPT-4o-mini para WhatsApp Bot
 import logging
 import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 
 import sentry_sdk
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +32,9 @@ from app.services.guided_menu_router import (
     execute_guided_route,
     route_guided_message,
 )
+from app.services.whatsapp_renderer import render_bot_reply, strip_html
 from app.services.idempotency import should_process_channel_event
+from app.utils.channel_phone import normalize_channel_phone
 from app.core.scheduler import start_scheduler, shutdown_scheduler, scheduler
 
 logger = logging.getLogger(__name__)
@@ -154,8 +156,14 @@ async def verify_webhook(request: Request):
     token = params.get("hub.verify_token")
     challenge = params.get("hub.challenge")
 
-    if mode == "subscribe" and token == config.META_VERIFY_TOKEN:
-        return int(challenge)
+    if (
+        mode == "subscribe"
+        and token == config.META_VERIFY_TOKEN
+        and challenge is not None
+    ):
+        # Meta espera el challenge como string crudo (puede ser alfanumérico);
+        # devolver int() o JSON rompería la verificación en algunos casos.
+        return Response(content=str(challenge), media_type="text/plain")
 
     raise HTTPException(status_code=403, detail="Verification failed")
 
@@ -200,11 +208,29 @@ async def whatsapp_webhook(request: Request):
         message_data = whatsapp_client.extract_message_from_webhook(payload)
 
         if not message_data:
-            # No es un mensaje válido o es un status update
+            # No es un mensaje válido
             return {"status": "ok"}
 
-        phone_number = message_data["from"]
-        message_text = message_data["text"]
+        if message_data.get("type") == "status_update":
+            # Telemetría de entrega de Meta (sent/delivered/read/failed): se
+            # loguea estructurado (base para reenvíos, bloqueos y costos — Meta
+            # cobra por plantilla entregada) y no se procesa como mensaje.
+            logger.info(
+                "wa_status_update status=%s wamid=%s recipient=%s business_phone=%s",
+                message_data.get("status"),
+                message_data.get("message_id"),
+                message_data.get("recipient_id"),
+                message_data.get("business_phone_number_id"),
+            )
+            return {"status": "ok"}
+
+        # Meta manda `from` en E.164 con formato libre (puede traer +, espacios…);
+        # normalizar como punto único de entrada (clientes, contexto e idempotencia).
+        phone_number = normalize_channel_phone(message_data["from"])
+        # Respuesta interactiva (button_reply/list_reply): se rutea por el id
+        # estructurado (nunca por el título visible, que es solo texto).
+        payload_id = message_data.get("list_payload") or message_data.get("button_payload")
+        message_text = payload_id if payload_id else (message_data.get("text") or "")
         message_id = message_data["message_id"]
 
         # Marcar como leído
@@ -240,7 +266,11 @@ async def whatsapp_webhook(request: Request):
             is_ai_message=decision.uses_ai,
         )
         if not quota["allowed"]:
-            await whatsapp_client.send_text_message(to=phone_number, message=quota["message"])
+            await whatsapp_client.send_text_message(
+                to=phone_number,
+                message=quota["message"],
+                phone_number_id=message_data["business_phone_number_id"],
+            )
             return {"status": "ok"}
 
         resp = await execute_guided_route(business_id, phone_number, decision, context)
@@ -254,8 +284,30 @@ async def whatsapp_webhook(request: Request):
             await conversation_manager.save_message(
                 business_id, phone_number, "user", message_text
             )
-            out_text = getattr(resp, "text_plain", None) or str(resp)
-            await whatsapp_client.send_text_message(to=phone_number, message=out_text)
+            # Decisión #7: las decisiones van SIEMPRE en interactivos nativos
+            # (reply buttons ≤3 / list ≤10), nunca menús numerados de texto.
+            render = render_bot_reply(resp)
+            pid = message_data["business_phone_number_id"]
+            if render.kind == "list":
+                await whatsapp_client.send_list_message(
+                    to=phone_number,
+                    body_text=render.text,
+                    sections=render.sections,
+                    phone_number_id=pid,
+                )
+            elif render.kind == "button":
+                await whatsapp_client.send_interactive_buttons(
+                    to=phone_number,
+                    body_text=render.text,
+                    buttons=render.buttons,
+                    phone_number_id=pid,
+                )
+            else:
+                await whatsapp_client.send_text_message(
+                    to=phone_number,
+                    message=render.text,
+                    phone_number_id=pid,
+                )
             await conversation_manager.save_message(
                 business_id, phone_number, "assistant", resp
             )
@@ -271,8 +323,14 @@ async def whatsapp_webhook(request: Request):
         )
         response_text = await run_conversation_turn(business_id, phone_number, message_text)
         logger.info("wa_route ai_pipeline business=%s user=%s", business_id, phone_number)
-        out_text = getattr(response_text, "text_plain", None) or str(response_text)
-        await whatsapp_client.send_text_message(to=phone_number, message=out_text)
+        # run_conversation_turn devuelve str: el path NLU queda solo texto (sin
+        # interactivos) hasta que el orchestrator emita BotReply.
+        out_text = strip_html(getattr(response_text, "text_plain", None) or str(response_text))
+        await whatsapp_client.send_text_message(
+            to=phone_number,
+            message=out_text,
+            phone_number_id=message_data["business_phone_number_id"],
+        )
         return {"status": "ok"}
 
     except Exception as e:

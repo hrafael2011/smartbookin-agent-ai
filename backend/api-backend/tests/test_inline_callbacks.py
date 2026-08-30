@@ -594,3 +594,52 @@ async def test_callback_with_current_token_executes(monkeypatch):
 
     assert reply.keyboard == telegram_ui.main_menu_keyboard()
     assert any(u.get("state") == "idle" for u in captured["updates"])
+
+
+# ── Recordatorio: acuse de asistencia (reminder_ack_<id>) ────────────────────
+
+def test_reminder_ack_callback_parses():
+    parsed = telegram_ui.parse_inline_callback("reminder_ack_5")
+    assert parsed == {"ns": "reminder_ack", "value": "5", "token": None}
+
+
+@pytest.mark.asyncio
+async def test_reminder_ack_acknowledges_appointment_and_returns_menu(monkeypatch):
+    captured = {}
+
+    async def fake_get(_aid, _cid):
+        return {
+            "id": 5,
+            "service_name": "Corte",
+            "start_at": "2026-08-28T09:00:00+00:00",
+            "status": "C",
+            "service_id": 1,
+        }
+
+    async def fake_update(_b, _k, payload):
+        captured.setdefault("updates", []).append(payload)
+
+    monkeypatch.setattr(router.db_service, "get_customer_appointment", fake_get)
+    monkeypatch.setattr(router.conversation_manager, "update_context", fake_update)
+
+    reply = await router.execute_guided_route(
+        1, "tg:1", cb("reminder_ack", "5"), ctx()
+    )
+
+    assert "te esperamos" in reply
+    assert reply.keyboard == telegram_ui.main_menu_keyboard()
+    assert any(u.get("state") == "idle" for u in captured["updates"])
+
+
+@pytest.mark.asyncio
+async def test_reminder_ack_without_appointment_returns_stale(monkeypatch):
+    async def fake_get(_aid, _cid):
+        return None
+
+    monkeypatch.setattr(router.db_service, "get_customer_appointment", fake_get)
+
+    reply = await router.execute_guided_route(
+        1, "tg:1", cb("reminder_ack", "999"), ctx()
+    )
+
+    assert "ya no está vigente" in reply

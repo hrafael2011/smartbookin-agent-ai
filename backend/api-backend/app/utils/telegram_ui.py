@@ -13,6 +13,7 @@ Convención de callback_data (compartible 1:1 con WhatsApp Business API):
     confirm_yes | confirm_no         Confirmación de cita
     cancel_appt_<id>                 Cita a cancelar
     cancel_confirm_yes | cancel_confirm_no
+    reminder_ack_<id>                Acuse de asistencia (botón de recordatorio)
     modify_appt_<id>                 Cita a modificar
     resume_yes | resume_no           Continuar / cerrar sesión vencida
 
@@ -276,6 +277,7 @@ _CALLBACK_PATTERNS: List[tuple] = [
     ("week", re.compile(r"^week_(\d+)$")),
     ("cancel_appt", re.compile(r"^cancel_appt_(\d+)$")),
     ("modify_appt", re.compile(r"^modify_appt_(\d+)$")),
+    ("reminder_ack", re.compile(r"^reminder_ack_(\d+)$")),
     ("menu", re.compile(r"^menu_(agendar|ver_citas|cambiar|cancelar|horarios)$")),
     ("nav", re.compile(r"^nav_(back|menu|exit)$")),
     ("confirm", re.compile(r"^confirm_(yes|no)$")),

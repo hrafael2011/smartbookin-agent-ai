@@ -14,9 +14,11 @@ from app.models import (
     TimeBlock,
 )
 from app.services.schedule_logic import apply_schedule_exceptions, build_slots
+from app.utils.channel_phone import normalize_channel_phone
 from app.utils.date_parse import DEFAULT_OPERATIONAL_TZ
 
 async def get_customer_by_channel(business_id: int, phone: str) -> Optional[Dict]:
+    phone = normalize_channel_phone(phone)
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Customer).filter(Customer.business_id == business_id, Customer.phone_number == phone)
@@ -32,6 +34,7 @@ async def get_customer_by_channel(business_id: int, phone: str) -> Optional[Dict
 
 
 async def find_or_create_customer(business_id: int, phone: str, name: str) -> Dict:
+    phone = normalize_channel_phone(phone)
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Customer).filter(Customer.business_id == business_id, Customer.phone_number == phone)

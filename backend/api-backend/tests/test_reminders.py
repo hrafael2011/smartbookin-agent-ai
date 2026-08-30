@@ -217,3 +217,116 @@ def test_query_filters_windows_and_unset_flags(monkeypatch):
     assert NOW + timedelta(hours=1, minutes=45) in values_2h
     assert NOW + timedelta(hours=2, minutes=15) in values_2h
     assert False in values_2h
+
+
+# ── Recordatorios WhatsApp (canal principal del producto) ────────────────────
+
+class _WaRow(_Row):
+    """Fila con WABA configurada (canal WhatsApp) o sin ella (waba=None)."""
+
+    def __init__(self, **kwargs):
+        waba = kwargs.pop("waba", "WBID_001")
+        config_json = kwargs.pop("config_json", None)
+        super().__init__(**kwargs)
+        self.business.whatsapp_phone_number_id = waba
+        self.business.config_json = config_json
+
+
+def _run_wa(rows, monkeypatch):
+    sent = []
+    session = FakeSession(rows)
+
+    async def fake_send(**kwargs):
+        sent.append(kwargs)
+        return {"messages": [{"id": "wamid.out"}]}
+
+    monkeypatch.setattr(background_tasks.db_service, "_upcoming_now", lambda: NOW)
+    monkeypatch.setattr(background_tasks.whatsapp_client, "send_template_message", fake_send)
+    monkeypatch.setattr(background_tasks, "AsyncSessionLocal", lambda: session)
+    asyncio.run(background_tasks.process_appointment_reminders())
+    return sent, session
+
+
+def test_sends_whatsapp_template_reminder_to_e164_phone(monkeypatch):
+    sent, session = _run_wa([_WaRow(tg="18095550000", appt_id=5)], monkeypatch)
+
+    assert len(sent) == 1
+    kw = sent[0]
+    assert kw["to"] == "18095550000"
+    assert kw["phone_number_id"] == "WBID_001"
+    assert kw["template_name"] == "appointment_reminder"
+    assert kw["language_code"] == "es"
+    assert kw["body_parameters"][0] == ""  # nombre del cliente (aún sin nombre)
+    assert kw["body_parameters"][1] == "Corte"
+    assert kw["body_parameters"][3] == "9:50 AM"
+    assert kw["body_parameters"][4] == "Barbería La Excelencia"
+    assert kw["button_payloads"] == {
+        0: "reminder_ack_5",
+        1: "modify_appt_5",
+        2: "cancel_appt_5",
+    }
+    assert session.committed is True
+
+
+def test_skips_whatsapp_when_business_has_no_waba(monkeypatch):
+    sent, session = _run_wa([_WaRow(tg="18095550000", waba=None)], monkeypatch)
+
+    assert sent == []
+    assert session.committed is False
+
+
+def test_whatsapp_send_failure_does_not_mark_flag(monkeypatch):
+    async def boom(**_kwargs):
+        raise RuntimeError("meta down")
+
+    row = _WaRow(tg="18095550000")
+    session = FakeSession([row])
+    monkeypatch.setattr(background_tasks.db_service, "_upcoming_now", lambda: NOW)
+    monkeypatch.setattr(background_tasks.whatsapp_client, "send_template_message", boom)
+    monkeypatch.setattr(background_tasks, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(background_tasks.logger, "exception", lambda *a, **k: None)
+
+    asyncio.run(background_tasks.process_appointment_reminders())
+
+    assert session.rolled_back_nested is True
+    assert session.committed is False
+    assert row.appointment.reminder_24h_sent is False
+
+
+def test_whatsapp_unregistered_number_marks_flag(monkeypatch):
+    from app.services.whatsapp_client import WhatsAppAPIError
+
+    async def unregistered(**_kwargs):
+        raise WhatsAppAPIError(133010, "número no registrado en WhatsApp")
+
+    row = _WaRow(tg="18095550000")
+    session = FakeSession([row])
+    monkeypatch.setattr(background_tasks.db_service, "_upcoming_now", lambda: NOW)
+    monkeypatch.setattr(background_tasks.whatsapp_client, "send_template_message", unregistered)
+    monkeypatch.setattr(background_tasks, "AsyncSessionLocal", lambda: session)
+    monkeypatch.setattr(background_tasks.logger, "warning", lambda *a, **k: None)
+
+    asyncio.run(background_tasks.process_appointment_reminders())
+
+    # Nunca llegará: marcar el flag evita el reintento eterno cada 15 min.
+    assert row.appointment.reminder_24h_sent is True
+    assert session.committed is True
+
+
+def test_whatsapp_2h_reminder_marks_2h_flag(monkeypatch):
+    row = _WaRow(tg="18095550000", date=NOW + timedelta(hours=1, minutes=50))
+
+    sent, session = _run_wa([[], [row]], monkeypatch)
+
+    assert len(sent) == 1
+    assert sent[0]["button_payloads"][0] == f"reminder_ack_{row.appointment.id}"
+    assert row.appointment.reminder_2h_sent is True
+    assert session.committed is True
+
+
+def test_whatsapp_template_override_from_config_json(monkeypatch):
+    row = _WaRow(tg="18095550000", config_json={"wa_template": "cita_custom"})
+
+    sent, _ = _run_wa([row], monkeypatch)
+
+    assert sent[0]["template_name"] == "cita_custom"

@@ -64,6 +64,8 @@ type RawBusiness = {
   latitude?: number | null
   longitude?: number | null
   whatsapp_phone_number_id?: string | null
+  waba_id?: string | null
+  config_json?: Record<string, unknown> | null
   is_active?: boolean
   daily_notification_enabled?: boolean
   created_at?: string
@@ -155,6 +157,8 @@ const mapBusiness = (raw: RawBusiness): Business => ({
   longitude: raw.longitude || undefined,
   timezone: 'America/Santo_Domingo',
   whatsapp_phone_number_id: raw.whatsapp_phone_number_id || undefined,
+  waba_id: raw.waba_id || undefined,
+  config_json: raw.config_json || undefined,
   is_active: raw.is_active ?? true,
   daily_notification_enabled: raw.daily_notification_enabled ?? true,
   created_at: raw.created_at || nowIso(),

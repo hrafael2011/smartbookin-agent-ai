@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -54,12 +55,21 @@ async def update_business(business_id: int, business_in: BusinessUpdate, db: Asy
     business = result.scalars().first()
     if not business:
         raise HTTPException(status_code=404, detail="Business not found")
-        
+
     update_data = business_in.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(business, key, value)
-    
-    await db.commit()
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # UniqueConstraint en whatsapp_phone_number_id/waba_id: otro negocio ya
+        # tiene ese número de WhatsApp registrado.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ese número de WhatsApp ya está registrado a otro negocio",
+        )
     await db.refresh(business)
     return business
 
