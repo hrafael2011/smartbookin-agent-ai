@@ -30,7 +30,18 @@ ASYNC_DATABASE_URL = (
     _db_url.set(query=_clean_query).render_as_string(hide_password=False)
 ).replace("postgresql://", "postgresql+asyncpg://")
 
-engine = create_async_engine(ASYNC_DATABASE_URL, connect_args=_ASYNC_CONNECT_ARGS, echo=False)
+# pool_pre_ping: Neon suspende el compute por inactividad y el contenedor de
+# Railway duerme cuando no hay tráfico. Los handles que quedan en el pool están
+# muertos, y el PRIMER request tras el reposo fallaba con 500 (el reintento sí
+# funcionaba). Con pre_ping SQLAlchemy descarta la conexión muerta y abre una
+# nueva antes de usarla. Sin esto, el cron de recordatorios falla precisamente
+# cuando el sistema estuvo inactivo, que es su caso normal.
+engine = create_async_engine(
+    ASYNC_DATABASE_URL,
+    connect_args=_ASYNC_CONNECT_ARGS,
+    echo=False,
+    pool_pre_ping=True,
+)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 Base = declarative_base()
